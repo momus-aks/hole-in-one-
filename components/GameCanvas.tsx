@@ -18,6 +18,8 @@ const FRICTION = 0.98;
 const MIN_VELOCITY = 0.1;
 const MAX_POWER = 15;
 const HOLE_SPEED = 1.5;
+const BASE_WIDTH = 800;
+const BASE_HEIGHT = 500;
 
 const GameCanvas: React.FC<GameCanvasProps> = ({ 
     onBallInHole, 
@@ -64,16 +66,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     onBonusUsedRef.current = onBonusUsed;
   });
 
-   const randomizeHolePosition = (canvas: HTMLCanvasElement) => {
+   const randomizeHolePosition = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
         const padding = 50;
         const newHolePos = {
-            x: Math.random() * (canvas.width - padding * 2) + padding,
-            y: Math.random() * (canvas.height - padding * 2) + padding,
+            x: Math.random() * (BASE_WIDTH - padding * 2) + padding,
+            y: Math.random() * (BASE_HEIGHT - padding * 2) + padding,
         };
 
         const distFromStart = Math.sqrt((newHolePos.x - 100) ** 2 + (newHolePos.y - 250) ** 2);
         if (distFromStart < 200) {
-            randomizeHolePosition(canvas); 
+            randomizeHolePosition(); 
             return;
         }
         
@@ -87,16 +91,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
   useEffect(() => {
     if (isTripleGoalBonusActive) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
       const padding = 50;
       bonusHole1Pos.current = {
-        x: Math.random() * (canvas.width - padding * 2) + padding,
-        y: Math.random() * (canvas.height - padding * 2) + padding,
+        x: Math.random() * (BASE_WIDTH - padding * 2) + padding,
+        y: Math.random() * (BASE_HEIGHT - padding * 2) + padding,
       };
       bonusHole2Pos.current = {
-        x: Math.random() * (canvas.width - padding * 2) + padding,
-        y: Math.random() * (canvas.height - padding * 2) + padding,
+        x: Math.random() * (BASE_WIDTH - padding * 2) + padding,
+        y: Math.random() * (BASE_HEIGHT - padding * 2) + padding,
       };
     } else {
       bonusHole1Pos.current = null;
@@ -113,7 +115,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     
     ballPos.current = { x: 100, y: 250 };
     ballVel.current = { x: 0, y: 0 };
-    randomizeHolePosition(canvas);
+    randomizeHolePosition();
     isAiming.current = false;
     startDragPos.current = null;
     endDragPos.current = null;
@@ -121,6 +123,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     shotCount.current = 0;
     needsHoleRandomizeOnStop.current = false;
     
+    let scale = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    const resizeCanvas = () => {
+        const { width, height } = canvas.getBoundingClientRect();
+        canvas.width = width;
+        canvas.height = height;
+
+        const scaleX = canvas.width / BASE_WIDTH;
+        const scaleY = canvas.height / BASE_HEIGHT;
+        scale = Math.min(scaleX, scaleY);
+
+        offsetX = (canvas.width - BASE_WIDTH * scale) / 2;
+        offsetY = (canvas.height - BASE_HEIGHT * scale) / 2;
+    };
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
     const drawHole = (pos: Vector2D, color: string) => {
         ctx.save();
         ctx.shadowColor = color;
@@ -146,14 +167,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.fillStyle = '#1e293b';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
+        ctx.save();
+        ctx.translate(offsetX, offsetY);
+        ctx.scale(scale, scale);
+
         if (difficulty === 'maximum' && isGameActiveRef.current) {
             holePos.current.x += holeVel.current.x;
             holePos.current.y += holeVel.current.y;
             
-            if (holePos.current.x - HOLE_RADIUS < 0 || holePos.current.x + HOLE_RADIUS > canvas.width) {
+            if (holePos.current.x - HOLE_RADIUS < 0 || holePos.current.x + HOLE_RADIUS > BASE_WIDTH) {
                 holeVel.current.x *= -1;
             }
-            if (holePos.current.y - HOLE_RADIUS < 0 || holePos.current.y + HOLE_RADIUS > canvas.height) {
+            if (holePos.current.y - HOLE_RADIUS < 0 || holePos.current.y + HOLE_RADIUS > BASE_HEIGHT) {
                 holeVel.current.y *= -1;
             }
         }
@@ -175,18 +200,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             isMoving.current = false;
             ballVel.current = { x: 0, y: 0 };
             if (needsHoleRandomizeOnStop.current) {
-                randomizeHolePosition(canvas);
+                randomizeHolePosition();
                 needsHoleRandomizeOnStop.current = false;
             }
         }
 
-        if (ballPos.current.x - BALL_RADIUS < 0 || ballPos.current.x + BALL_RADIUS > canvas.width) {
+        if (ballPos.current.x - BALL_RADIUS < 0 || ballPos.current.x + BALL_RADIUS > BASE_WIDTH) {
             ballVel.current.x *= -1;
-            ballPos.current.x = Math.max(BALL_RADIUS, Math.min(ballPos.current.x, canvas.width - BALL_RADIUS));
+            ballPos.current.x = Math.max(BALL_RADIUS, Math.min(ballPos.current.x, BASE_WIDTH - BALL_RADIUS));
         }
-        if (ballPos.current.y - BALL_RADIUS < 0 || ballPos.current.y + BALL_RADIUS > canvas.height) {
+        if (ballPos.current.y - BALL_RADIUS < 0 || ballPos.current.y + BALL_RADIUS > BASE_HEIGHT) {
             ballVel.current.y *= -1;
-            ballPos.current.y = Math.max(BALL_RADIUS, Math.min(ballPos.current.y, canvas.height - BALL_RADIUS));
+            ballPos.current.y = Math.max(BALL_RADIUS, Math.min(ballPos.current.y, BASE_HEIGHT - BALL_RADIUS));
         }
         
         const checkWin = (hole: Vector2D | null): boolean => {
@@ -224,7 +249,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             ballVel.current = { x: 0, y: 0 };
             isMoving.current = false;
             shotCount.current = 0;
-            randomizeHolePosition(canvas);
+            randomizeHolePosition();
         }
         
         ctx.fillStyle = '#fff';
@@ -274,29 +299,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }
         ctx.restore();
 
+        ctx.restore(); // Restore from scale/translate
 
         animationFrameId.current = requestAnimationFrame(gameLoop);
     };
 
     animationFrameId.current = requestAnimationFrame(gameLoop);
-
-    const getMousePos = (e: MouseEvent): Vector2D => {
+    
+    const getPointerPos = (clientX: number, clientY: number): Vector2D => {
         const rect = canvas.getBoundingClientRect();
-        return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
-        };
-    };
+        const canvasX = (clientX - rect.left - offsetX) / scale;
+        const canvasY = (clientY - rect.top - offsetY) / scale;
+        return { x: canvasX, y: canvasY };
+    }
 
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (!isAiming.current) return;
-      endDragPos.current = getMousePos(e);
-    };
-
-    const handleGlobalMouseUp = () => {
-      window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleGlobalMouseUp);
-
+    const handlePointerUp = () => {
       if (!isAiming.current || !startDragPos.current || !endDragPos.current) return;
       isAiming.current = false;
 
@@ -325,9 +342,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       }
     };
 
+    // Mouse Events
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (!isAiming.current) return;
+      endDragPos.current = getPointerPos(e.clientX, e.clientY);
+    };
+
+    const handleGlobalMouseUp = () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      handlePointerUp();
+    };
+
     const handleMouseDown = (e: MouseEvent) => {
       if (isMoving.current || isGameOver) return;
-      const mousePos = getMousePos(e);
+      const mousePos = getPointerPos(e.clientX, e.clientY);
       const distToBall = Math.sqrt((mousePos.x - ballPos.current.x) ** 2 + (mousePos.y - ballPos.current.y) ** 2);
       if (distToBall < BALL_RADIUS * 2) {
         isAiming.current = true;
@@ -338,22 +367,58 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       }
     };
     
+    // Touch Events
+    const handleGlobalTouchMove = (e: TouchEvent) => {
+      if (!isAiming.current) return;
+      e.preventDefault();
+      endDragPos.current = getPointerPos(e.touches[0].clientX, e.touches[0].clientY);
+    };
+
+    const handleGlobalTouchEnd = () => {
+      window.removeEventListener('touchmove', handleGlobalTouchMove);
+      window.removeEventListener('touchend', handleGlobalTouchEnd);
+      handlePointerUp();
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+        if (isMoving.current || isGameOver) return;
+        const touchPos = getPointerPos(e.touches[0].clientX, e.touches[0].clientY);
+        const distToBall = Math.sqrt((touchPos.x - ballPos.current.x) ** 2 + (touchPos.y - ballPos.current.y) ** 2);
+        if (distToBall < BALL_RADIUS * 3) { // Larger touch target
+            e.preventDefault();
+            isAiming.current = true;
+            startDragPos.current = touchPos;
+            endDragPos.current = touchPos;
+            window.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
+            window.addEventListener('touchend', handleGlobalTouchEnd);
+        }
+    };
+    
     canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     
     return () => {
         cancelAnimationFrame(animationFrameId.current);
+        window.removeEventListener('resize', resizeCanvas);
         canvas.removeEventListener('mousedown', handleMouseDown);
         window.removeEventListener('mousemove', handleGlobalMouseMove);
         window.removeEventListener('mouseup', handleGlobalMouseUp);
+        canvas.removeEventListener('touchstart', handleTouchStart);
+        window.removeEventListener('touchmove', handleGlobalTouchMove);
+        window.removeEventListener('touchend', handleGlobalTouchEnd);
     };
   }, [isGameOver, isTripleGoalBonusActive, difficulty]);
+
+  const isActiveOrOver = isGameActive || isGameOver;
+
+  const canvasClasses = isActiveOrOver
+    ? "absolute inset-0 w-full h-full bg-slate-800"
+    : "w-full aspect-video md:aspect-[16/10] bg-slate-800 rounded-xl shadow-inner border border-slate-700 max-h-[calc(100vh-250px)]";
 
   return (
     <canvas
       ref={canvasRef}
-      width={800}
-      height={500}
-      className="bg-slate-800 rounded-xl shadow-inner border border-slate-700"
+      className={canvasClasses}
     />
   );
 };

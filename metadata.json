@@ -1,5 +1,5 @@
 {
-  "name": "Hole in One ",
-  "description": "A simple physics-based game where you aim and shoot a ball to get it into a hole. Control the projection by dragging from the ball and releasing to shoot.",
+  "name": "Hole in One",
+  "description": "A simple physics-based game where you aim and shoot a ball to get it into a hole. Developed by AKS.",
   "requestFramePermissions": []
 }

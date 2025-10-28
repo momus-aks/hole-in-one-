@@ -145,49 +145,79 @@ const App: React.FC = () => {
     });
   };
 
+  const isActiveOrOver = isGameActive || isGameOver;
+
+  const controlPanelProps = {
+    score,
+    timeLeft,
+    isGameActive,
+    isGameOver,
+    onReset: handleReset,
+    highScore: leaderboard.length > 0 ? leaderboard[0] : null,
+    holeInOneStreak,
+    isTripleGoalBonusAvailable,
+    onActivateBonus: handleActivateBonus,
+    difficulty,
+    onChangeDifficulty: handleChangeDifficulty,
+    onShowLeaderboard: () => setIsLeaderboardModalOpen(true),
+    gameDuration,
+    onChangeGameDuration: handleChangeGameDuration,
+  };
+
+  const gameCanvasProps = {
+      key: resetKey,
+      onBallInHole: handleBallInHole,
+      onShot: handleShot,
+      isGameOver,
+      isTripleGoalBonusActive,
+      onBonusUsed: handleBonusUsed,
+      difficulty,
+      isGameActive,
+  };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center font-sans p-4">
-      <div className="w-full max-w-4xl mx-auto flex flex-col items-center relative">
-        <Header gameDuration={gameDuration} />
-        <GameCanvas
-          key={resetKey}
-          onBallInHole={handleBallInHole}
-          onShot={handleShot}
-          isGameOver={isGameOver}
-          isTripleGoalBonusActive={isTripleGoalBonusActive}
-          onBonusUsed={handleBonusUsed}
-          difficulty={difficulty}
-          isGameActive={isGameActive}
-        />
-        <ControlPanel
-          score={score}
-          timeLeft={timeLeft}
-          isGameActive={isGameActive}
-          isGameOver={isGameOver}
-          onReset={handleReset}
-          highScore={leaderboard.length > 0 ? leaderboard[0] : null}
-          holeInOneStreak={holeInOneStreak}
-          isTripleGoalBonusAvailable={isTripleGoalBonusAvailable}
-          onActivateBonus={handleActivateBonus}
-          difficulty={difficulty}
-          onChangeDifficulty={handleChangeDifficulty}
-          onShowLeaderboard={() => setIsLeaderboardModalOpen(true)}
-          gameDuration={gameDuration}
-          onChangeGameDuration={handleChangeGameDuration}
-        />
-        <HighScoreModal
-          isOpen={isHighScoreModalOpen}
-          score={score}
-          onSave={handleSaveHighScore}
-          leaderboard={leaderboard}
-        />
-        <LeaderboardModal
-          isOpen={isLeaderboardModalOpen}
-          leaderboard={leaderboard}
-          onClose={() => setIsLeaderboardModalOpen(false)}
-        />
-      </div>
+    <div className="h-screen bg-slate-900 text-white flex flex-col font-sans overflow-hidden">
+      {!isActiveOrOver ? (
+        // PRE-GAME LAYOUT
+        <>
+          <div className="w-full max-w-4xl mx-auto flex flex-col items-center p-4 flex-grow">
+            <Header gameDuration={gameDuration} />
+            <div className="relative w-full mb-4 flex-grow flex items-center">
+                <GameCanvas {...gameCanvasProps} />
+            </div>
+            <ControlPanel {...controlPanelProps} />
+          </div>
+          <footer className="text-center text-slate-500 text-sm py-2 shrink-0">
+              Developed by AKS
+          </footer>
+        </>
+      ) : isGameActive ? (
+        // IN-GAME LAYOUT
+        <>
+          <ControlPanel {...controlPanelProps} />
+          <div className="relative w-full flex-grow">
+            <GameCanvas {...gameCanvasProps} />
+          </div>
+        </>
+      ) : ( // isGameOver
+        // GAME-OVER LAYOUT
+        <div className="relative w-full flex-grow">
+          <GameCanvas {...gameCanvasProps} />
+          <ControlPanel {...controlPanelProps} />
+        </div>
+      )}
+
+      <HighScoreModal
+        isOpen={isHighScoreModalOpen}
+        score={score}
+        onSave={handleSaveHighScore}
+        leaderboard={leaderboard}
+      />
+      <LeaderboardModal
+        isOpen={isLeaderboardModalOpen}
+        leaderboard={leaderboard}
+        onClose={() => setIsLeaderboardModalOpen(false)}
+      />
     </div>
   );
 };
