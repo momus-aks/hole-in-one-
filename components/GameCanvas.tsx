@@ -146,7 +146,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.fillStyle = '#1e293b';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
-        // Hole movement for Maximum difficulty
         if (difficulty === 'maximum' && isGameActiveRef.current) {
             holePos.current.x += holeVel.current.x;
             holePos.current.y += holeVel.current.y;
@@ -159,10 +158,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             }
         }
 
-        drawHole(holePos.current, '#06b6d4'); // cyan-400
+        drawHole(holePos.current, '#06b6d4');
         if (isTripleGoalBonusActive && bonusHole1Pos.current && bonusHole2Pos.current) {
-            drawHole(bonusHole1Pos.current, '#f59e0b'); // amber-500
-            drawHole(bonusHole2Pos.current, '#f59e0b'); // amber-500
+            drawHole(bonusHole1Pos.current, '#f59e0b');
+            drawHole(bonusHole2Pos.current, '#f59e0b');
         }
         
         ballPos.current.x += ballVel.current.x;
@@ -213,7 +212,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     x: scoredHolePosition.x,
                     y: scoredHolePosition.y - HOLE_RADIUS,
                     opacity: 1,
-                    life: 90 // 1.5s at 60fps
+                    life: 90
                 });
             }
 
@@ -253,7 +252,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             ctx.setLineDash([]);
         }
 
-        // Draw bonus texts
         ctx.save();
         ctx.textAlign = 'center';
         ctx.font = 'bold 28px sans-serif';
@@ -263,7 +261,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         for (let i = bonusTexts.current.length - 1; i >= 0; i--) {
             const text = bonusTexts.current[i];
             
-            ctx.fillStyle = `rgba(255, 215, 0, ${text.opacity})`; // Gold color
+            ctx.fillStyle = `rgba(255, 215, 0, ${text.opacity})`;
             ctx.fillText(text.text, text.x, text.y);
             
             text.y -= 0.75;
@@ -290,64 +288,63 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         };
     };
 
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (!isAiming.current) return;
+      endDragPos.current = getMousePos(e);
+    };
+
+    const handleGlobalMouseUp = () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+
+      if (!isAiming.current || !startDragPos.current || !endDragPos.current) return;
+      isAiming.current = false;
+
+      const dx = endDragPos.current.x - startDragPos.current.x;
+      const dy = endDragPos.current.y - startDragPos.current.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      startDragPos.current = null;
+      endDragPos.current = null;
+
+      if (dist > 5) {
+        const power = Math.min(dist / 10, MAX_POWER);
+        const angle = Math.atan2(dy, dx);
+        
+        ballVel.current.x = -Math.cos(angle) * power;
+        ballVel.current.y = -Math.sin(angle) * power;
+
+        isMoving.current = true;
+
+        onShotRef.current();
+        shotCount.current++;
+        
+        if (difficulty === 'advanced') {
+          needsHoleRandomizeOnStop.current = true;
+        }
+      }
+    };
+
     const handleMouseDown = (e: MouseEvent) => {
-        if (isMoving.current || isGameOver) return;
-        const mousePos = getMousePos(e);
-        const distToBall = Math.sqrt((mousePos.x - ballPos.current.x) ** 2 + (mousePos.y - ballPos.current.y) ** 2);
-        if (distToBall < BALL_RADIUS * 2) { 
-            isAiming.current = true;
-            startDragPos.current = mousePos;
-            endDragPos.current = mousePos;
-        }
-    };
-    
-    const handleMouseMove = (e: MouseEvent) => {
-        if (!isAiming.current) return;
-        endDragPos.current = getMousePos(e);
-    };
-    
-    const handleMouseUp = () => {
-        if (!isAiming.current || !startDragPos.current || !endDragPos.current) return;
-        
-        isAiming.current = false;
-
-        const dx = endDragPos.current.x - startDragPos.current.x;
-        const dy = endDragPos.current.y - startDragPos.current.y;
-        
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        
-        startDragPos.current = null;
-        endDragPos.current = null;
-
-        if (dist > 5) {
-            const power = Math.min(dist / 10, MAX_POWER);
-            const angle = Math.atan2(dy, dx);
-            
-            ballVel.current.x = -Math.cos(angle) * power;
-            ballVel.current.y = -Math.sin(angle) * power;
-
-            isMoving.current = true;
-
-            onShotRef.current();
-            shotCount.current++;
-            
-            if (difficulty === 'advanced') {
-                needsHoleRandomizeOnStop.current = true;
-            }
-        }
+      if (isMoving.current || isGameOver) return;
+      const mousePos = getMousePos(e);
+      const distToBall = Math.sqrt((mousePos.x - ballPos.current.x) ** 2 + (mousePos.y - ballPos.current.y) ** 2);
+      if (distToBall < BALL_RADIUS * 2) {
+        isAiming.current = true;
+        startDragPos.current = mousePos;
+        endDragPos.current = mousePos;
+        window.addEventListener('mousemove', handleGlobalMouseMove);
+        window.addEventListener('mouseup', handleGlobalMouseUp);
+      }
     };
     
     canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mouseup', handleMouseUp);
-    canvas.addEventListener('mouseleave', handleMouseUp);
     
     return () => {
         cancelAnimationFrame(animationFrameId.current);
         canvas.removeEventListener('mousedown', handleMouseDown);
-        canvas.removeEventListener('mousemove', handleMouseMove);
-        canvas.removeEventListener('mouseup', handleMouseUp);
-        canvas.removeEventListener('mouseleave', handleMouseUp);
+        window.removeEventListener('mousemove', handleGlobalMouseMove);
+        window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
   }, [isGameOver, isTripleGoalBonusActive, difficulty]);
 
