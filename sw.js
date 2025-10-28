@@ -12,9 +12,6 @@ const urlsToCache = [
   'components/ControlPanel.tsx',
   'components/HighScoreModal.tsx',
   'components/LeaderboardModal.tsx',
-  'https://cdn.tailwindcss.com',
-  'https://aistudiocdn.com/react@^19.2.0',
-  'https://aistudiocdn.com/react-dom@^19.2.0/client'
 ];
 
 self.addEventListener('install', (event) => {
@@ -23,7 +20,12 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME)
       .then((cache) => {
         console.log('Opened cache');
+        // Use a separate addAll for local assets, and optionally add remote assets individually
+        // to avoid the entire cache operation failing if one remote asset fails.
         return cache.addAll(urlsToCache);
+      })
+      .catch(err => {
+        console.error('Failed to cache urls:', err);
       })
   );
 });
@@ -32,11 +34,24 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
-        // Cache hit - return response
+        // Cache hit - return response from cache
         if (response) {
           return response;
         }
-        return fetch(event.request);
+
+        // Not in cache - fetch from network
+        return fetch(event.request).then(
+          (networkResponse) => {
+            // Check if we received a valid response
+            if(!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+               // Don't cache opaque responses (from CDNs without CORS)
+               if(networkResponse.type !== 'opaque') {
+                 // console.log('FETCH: Not caching', event.request.url);
+               }
+            }
+            return networkResponse;
+          }
+        );
       }
     )
   );
