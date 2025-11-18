@@ -30,7 +30,7 @@ const HighScoreModal: React.FC<HighScoreModalProps> = ({ isOpen, score, onSave, 
 
   return (
     <div className="absolute inset-0 bg-black/70 flex items-center justify-center backdrop-blur-sm z-50">
-      <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-sm text-center">
+      <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-sm text-center mx-4">
         <h2 className="text-3xl font-bold text-cyan-400 mb-2">You Made the Leaderboard!</h2>
         <p className="text-slate-300 mb-4">You set a new record with <span className="font-bold text-white text-lg">{score}</span> goals!</p>
         <p className="text-slate-400 mb-6">Enter your name to save your score:</p>

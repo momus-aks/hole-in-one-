@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HighScore } from '../types';
-import { Difficulty } from '../App';
+import { Difficulty, GameMode } from '../App';
 
 interface ControlPanelProps {
   score: number;
@@ -10,13 +10,18 @@ interface ControlPanelProps {
   onReset: () => void;
   highScore: HighScore | null;
   holeInOneStreak: number;
-  isTripleGoalBonusAvailable: boolean;
-  onActivateBonus: () => void;
   difficulty: Difficulty;
   onChangeDifficulty: (difficulty: Difficulty) => void;
   onShowLeaderboard: () => void;
   gameDuration: number;
-  onChangeGameDuration: (increment: number) => void;
+  gameMode: GameMode;
+  onReturnToMenu: () => void;
+  // Local MP
+  playerScores: { p1: number, p2: number };
+  // Online MP
+  onlinePlayerScores: { p1: number, p2: number };
+  onlineCurrentPlayer: 1 | 2;
+  onlineWinner: 1 | 2 | 'tie' | null;
 }
 
 const DifficultyButton: React.FC<{
@@ -29,9 +34,10 @@ const DifficultyButton: React.FC<{
     return (
         <button
             onClick={() => onClick(level)}
-            className={`px-3 py-1.5 md:px-4 md:py-2 text-xs md:text-sm font-bold rounded-lg transition-all duration-200 flex-grow ${
+            disabled={isActive}
+            className={`px-2 sm:px-4 py-1 sm:py-2 text-xs sm:text-sm font-bold rounded-lg transition-all duration-200 ${
                 isActive 
-                ? 'bg-cyan-500 text-white shadow-lg' 
+                ? 'bg-cyan-500 text-white shadow-lg cursor-default' 
                 : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
             }`}
         >
@@ -39,6 +45,42 @@ const DifficultyButton: React.FC<{
         </button>
     )
 }
+
+const GameOverMessage: React.FC<{ 
+    gameMode: GameMode, 
+    localPlayerScores: {p1: number, p2: number},
+    onlineWinner: 1 | 2 | 'tie' | null,
+ }> = ({ gameMode, localPlayerScores, onlineWinner}) => {
+    let message = "TIME'S UP!";
+
+    if (gameMode === 'singleplayer') {
+        return <p className="text-2xl sm:text-3xl font-bold text-red-500 animate-pulse tracking-widest">{message}</p>
+    }
+
+    if (gameMode === 'localMultiplayer') {
+        if (localPlayerScores.p1 > localPlayerScores.p2) {
+            message = "PLAYER 1 WINS!";
+        } else if (localPlayerScores.p2 > localPlayerScores.p1) {
+            message = "PLAYER 2 WINS!";
+        } else {
+            message = "IT'S A TIE!";
+        }
+    }
+
+    if (gameMode === 'onlineMultiplayer') {
+        if (onlineWinner === 1) {
+            message = "PLAYER 1 WINS!";
+        } else if (onlineWinner === 2) {
+            message = "PLAYER 2 WINS!";
+        } else if (onlineWinner === 'tie') {
+            message = "IT'S A TIE!";
+        } else {
+            message = "GAME OVER!"; // Default/disconnect case
+        }
+    }
+
+    return <p className="text-2xl sm:text-3xl font-bold text-red-500 animate-pulse tracking-widest">{message}</p>
+};
 
 const ControlPanel: React.FC<ControlPanelProps> = ({ 
   score, 
@@ -48,142 +90,124 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onReset,
   highScore,
   holeInOneStreak,
-  isTripleGoalBonusAvailable,
-  onActivateBonus,
   difficulty,
   onChangeDifficulty,
   onShowLeaderboard,
   gameDuration,
-  onChangeGameDuration
+  gameMode,
+  onReturnToMenu,
+  playerScores,
+  onlinePlayerScores,
+  onlineCurrentPlayer,
+  onlineWinner,
 }) => {
-  const [isAnimatingDifficulty, setIsAnimatingDifficulty] = useState(false);
-  const prevDifficultyRef = useRef(difficulty);
+  const isMultiplayer = gameMode === 'localMultiplayer' || gameMode === 'onlineMultiplayer';
+  const displayScores = isMultiplayer ? (gameMode === 'onlineMultiplayer' ? onlinePlayerScores : playerScores) : { p1: 0, p2: 0 };
 
-  useEffect(() => {
-    if (prevDifficultyRef.current !== difficulty) {
-      setIsAnimatingDifficulty(true);
-      const timer = setTimeout(() => {
-        setIsAnimatingDifficulty(false);
-      }, 400); // Animation duration
-      
-      prevDifficultyRef.current = difficulty;
-      return () => clearTimeout(timer);
-    }
-  }, [difficulty]);
+  const showDifficultySelector = gameMode === 'practice' || (!isGameActive && gameMode !== 'onlineMultiplayer');
 
-  const renderPreGameControls = () => (
-    <div className="w-full max-w-4xl bg-slate-800/50 p-3 md:p-4 rounded-xl shadow-2xl backdrop-blur-md border border-slate-700">
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-        {/* Left Section */}
-        <div className="w-full md:w-auto flex flex-row items-center justify-between md:justify-start md:space-x-4">
-          <button
+  return (
+    <div className="w-full max-w-4xl bg-slate-800/50 p-2 sm:p-4 mt-2 sm:mt-4 rounded-xl flex flex-col md:flex-row items-center justify-between shadow-2xl backdrop-blur-md border border-slate-700 gap-4">
+      <div className="hidden md:flex items-center space-x-4 order-1">
+         <button
             onClick={onShowLeaderboard}
-            className="px-3 py-2 md:px-4 bg-slate-700 text-slate-300 hover:bg-slate-600 font-semibold rounded-lg shadow-lg transition-all duration-300 transform hover:scale-105 text-sm"
-          >
+            className="px-4 py-2 bg-slate-700 text-slate-300 hover:bg-slate-600 font-semibold rounded-lg shadow-lg focus:outline-none transition-all duration-300 transform hover:scale-105"
+        >
             Leaderboard
-          </button>
-          {highScore ? (
-            <div className="text-right md:text-left">
-              <h2 className="text-xs font-semibold text-cyan-400 tracking-widest uppercase">Best</h2>
-              <p className="text-base md:text-xl font-bold text-white">{highScore.score}</p>
-            </div>
-          ) : (
-            <div className="text-right md:text-left">
-              <h2 className="text-xs font-semibold text-cyan-400 tracking-widest uppercase">Best</h2>
-              <p className="text-base md:text-xl font-bold text-white">-</p>
-            </div>
-          )}
-        </div>
-
-        {/* Middle Section */}
-        <div className="order-first md:order-none w-full md:w-auto">
-          <div className="flex flex-col lg:flex-row items-center justify-center gap-4 w-full">
-            <div className="text-center w-full lg:w-auto">
-              <h2 className="text-sm md:text-lg font-semibold text-slate-300 tracking-wide mb-2">Difficulty</h2>
-              <div className={`flex space-x-2 p-1 rounded-lg transition-colors duration-300 ease-in-out ${isAnimatingDifficulty ? 'bg-cyan-500/20' : 'bg-transparent'}`}>
-                <DifficultyButton level="normal" current={difficulty} onClick={onChangeDifficulty}>Normal</DifficultyButton>
-                <DifficultyButton level="advanced" current={difficulty} onClick={onChangeDifficulty}>Advanced</DifficultyButton>
-                <DifficultyButton level="maximum" current={difficulty} onClick={onChangeDifficulty}>Maximum</DifficultyButton>
-              </div>
-            </div>
-            <div className="text-center w-full lg:w-auto">
-              <h2 className="text-sm md:text-lg font-semibold text-slate-300 tracking-wide mb-2">Time Limit</h2>
-              <div className="flex items-center justify-center space-x-2 bg-slate-700 rounded-lg p-1">
-                <button onClick={() => onChangeGameDuration(-30)} disabled={gameDuration <= 30} className="px-2 py-1 text-lg font-bold rounded disabled:opacity-50 text-white hover:bg-slate-600">-</button>
-                <span className="text-base md:text-lg font-bold text-white w-16 text-center">{gameDuration}s</span>
-                <button onClick={() => onChangeGameDuration(30)} disabled={gameDuration >= 180} className="px-2 py-1 text-lg font-bold rounded disabled:opacity-50 text-white hover:bg-slate-600">+</button>
-              </div>
-            </div>
+        </button>
+        {gameMode === 'singleplayer' && (highScore ? (
+           <div>
+            <h2 className="text-xs font-semibold text-cyan-400 tracking-widest uppercase">Best Score</h2>
+            <p className="text-xl font-bold text-white">{highScore.name} - {highScore.score}</p>
           </div>
-        </div>
-
-        {/* Right Section */}
-        <div className="w-full md:w-auto">
-          <button
-            onClick={onReset}
-            className="w-full md:w-auto px-6 py-2 bg-gradient-to-br from-cyan-500 to-blue-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-cyan-500/50 transition-all duration-300 transform hover:scale-105"
-          >
-            Start
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderInGameStats = () => (
-    <div className="w-full bg-slate-800 p-2 shadow-lg z-10 shrink-0">
-      <div className="max-w-4xl mx-auto flex items-center justify-around gap-2">
-        <div className="text-center">
-          <h2 className="text-xs md:text-base font-semibold text-slate-300 tracking-wide">STREAK</h2>
-          <span className="text-lg md:text-2xl font-bold text-white min-w-[60px] text-center block">{holeInOneStreak}</span>
-        </div>
-        <div className="text-center">
-          <h2 className="text-xs md:text-base font-semibold text-slate-300 tracking-wide">SCORE</h2>
-          <span className="text-lg md:text-2xl font-bold text-white min-w-[60px] text-center block">{score}</span>
-        </div>
-        {isTripleGoalBonusAvailable ? (
-          <button
-            onClick={onActivateBonus}
-            className="px-3 py-2 md:px-4 text-sm md:text-base bg-gradient-to-br from-amber-400 to-orange-500 text-white font-bold rounded-lg shadow-lg hover:shadow-amber-500/50 transition-all duration-300 transform hover:scale-105 animate-pulse"
-          >
-            TRIPLE GOAL!
-          </button>
         ) : (
-          <div className="text-center">
-            <h2 className="text-xs md:text-base font-semibold text-slate-300 tracking-wide">TIME</h2>
-            <span className="text-lg md:text-2xl font-bold text-white min-w-[60px] text-center block">{timeLeft}</span>
-          </div>
+           <div>
+             <h2 className="text-xs font-semibold text-cyan-400 tracking-widest uppercase">Best Score</h2>
+             <p className="text-xl font-bold text-white">-</p>
+           </div>
+        ))}
+      </div>
+
+      <div className="flex items-center space-x-2 sm:space-x-6 order-1 md:order-2">
+        {isGameOver ? (
+           <GameOverMessage gameMode={gameMode} localPlayerScores={playerScores} onlineWinner={onlineWinner} />
+        ) : showDifficultySelector ? (
+            <div className="flex items-center space-x-6">
+                <div className="text-center">
+                    <h2 className="text-base sm:text-lg font-semibold text-slate-300 tracking-wide mb-2">Difficulty</h2>
+                    <div className={`flex space-x-2 p-1 rounded-lg`}>
+                        <DifficultyButton level="normal" current={difficulty} onClick={onChangeDifficulty}>Normal</DifficultyButton>
+                        <DifficultyButton level="advanced" current={difficulty} onClick={onChangeDifficulty}>Advanced</DifficultyButton>
+                        <DifficultyButton level="maximum" current={difficulty} onClick={onChangeDifficulty}>Maximum</DifficultyButton>
+                    </div>
+                </div>
+            </div>
+        ) : gameMode === 'singleplayer' ? (
+          <>
+            <div className="text-center">
+              <h2 className="text-sm sm:text-xl font-semibold text-slate-300 tracking-wide">STREAK</h2>
+              <span className="text-2xl sm:text-3xl font-bold text-white bg-slate-700/50 px-3 sm:px-4 py-1 rounded-lg min-w-[60px] sm:min-w-[80px] text-center block">{holeInOneStreak}</span>
+            </div>
+            <div className="text-center">
+              <h2 className="text-sm sm:text-xl font-semibold text-slate-300 tracking-wide">SCORE</h2>
+              <span className="text-2xl sm:text-3xl font-bold text-white bg-slate-700/50 px-3 sm:px-4 py-1 rounded-lg min-w-[60px] sm:min-w-[80px] text-center block">{score}</span>
+            </div>
+            <div className="text-center">
+                <h2 className="text-sm sm:text-xl font-semibold text-slate-300 tracking-wide">TIME</h2>
+                <span className="text-2xl sm:text-3xl font-bold text-white bg-slate-700/50 px-3 sm:px-4 py-1 rounded-lg min-w-[60px] sm:min-w-[80px] text-center block">{timeLeft}</span>
+            </div>
+          </>
+        ) : gameMode === 'localMultiplayer' ? ( 
+             <>
+                <div className="p-2 rounded-lg">
+                    <h2 className="text-base sm:text-xl font-semibold tracking-wide text-center text-cyan-400">P1</h2>
+                    <span className="text-2xl sm:text-3xl font-bold text-white bg-slate-700/50 px-3 sm:px-4 py-1 rounded-lg min-w-[60px] sm:min-w-[80px] text-center block">{displayScores.p1}</span>
+                </div>
+                <div className="text-center">
+                    <h2 className="text-base sm:text-xl font-semibold text-slate-300 tracking-wide">TIME</h2>
+                    <span className="text-2xl sm:text-3xl font-bold text-white bg-slate-700/50 px-3 sm:px-4 py-1 rounded-lg min-w-[60px] sm:min-w-[80px] text-center block">{timeLeft}</span>
+                </div>
+                <div className="p-2 rounded-lg">
+                     <h2 className="text-base sm:text-xl font-semibold tracking-wide text-center text-red-400">P2</h2>
+                    <span className="text-2xl sm:text-3xl font-bold text-white bg-slate-700/50 px-3 sm:px-4 py-1 rounded-lg min-w-[60px] sm:min-w-[80px] text-center block">{displayScores.p2}</span>
+                </div>
+             </>
+        ) : ( // Online Multiplayer
+             <>
+                <div className={`p-2 rounded-lg transition-all duration-300 ${onlineCurrentPlayer === 1 ? 'bg-cyan-500/20' : ''}`}>
+                    <h2 className={`text-base sm:text-xl font-semibold tracking-wide text-center ${onlineCurrentPlayer === 1 ? 'text-cyan-400' : 'text-slate-300'}`}>P1</h2>
+                    <span className="text-2xl sm:text-3xl font-bold text-white bg-slate-700/50 px-3 sm:px-4 py-1 rounded-lg min-w-[60px] sm:min-w-[80px] text-center block">{displayScores.p1}</span>
+                </div>
+                <div className="text-center">
+                    <h2 className="text-base sm:text-xl font-semibold text-slate-300 tracking-wide">TIME</h2>
+                    <span className="text-2xl sm:text-3xl font-bold text-white bg-slate-700/50 px-3 sm:px-4 py-1 rounded-lg min-w-[60px] sm:min-w-[80px] text-center block">{timeLeft}</span>
+                </div>
+                <div className={`p-2 rounded-lg transition-all duration-300 ${onlineCurrentPlayer === 2 ? 'bg-red-500/20' : ''}`}>
+                     <h2 className={`text-base sm:text-xl font-semibold tracking-wide text-center ${onlineCurrentPlayer === 2 ? 'text-red-400' : 'text-slate-300'}`}>P2</h2>
+                    <span className="text-2xl sm:text-3xl font-bold text-white bg-slate-700/50 px-3 sm:px-4 py-1 rounded-lg min-w-[60px] sm:min-w-[80px] text-center block">{displayScores.p2}</span>
+                </div>
+             </>
         )}
       </div>
-    </div>
-  );
 
-  const renderGameOver = () => (
-    <div className="flex flex-col items-center justify-center text-center">
-        <p className="text-4xl md:text-5xl font-bold text-red-500 animate-pulse tracking-widest">TIME'S UP!</p>
-        <p className="text-xl mt-2">Final Score: <span className="font-bold text-white text-2xl">{score}</span></p>
-        <button
-            onClick={onReset}
-            className="mt-6 px-8 py-3 bg-gradient-to-br from-cyan-500 to-blue-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-cyan-500/50 transition-all duration-300 transform hover:scale-105"
-        >
-            New Game
-        </button>
-    </div>
-  );
-
-  if (isGameOver) {
-    return (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            {renderGameOver()}
+        <div className="flex flex-row md:flex-col items-stretch space-x-2 md:space-x-0 md:space-y-2 order-2 md:order-3">
+            {gameMode !== 'onlineMultiplayer' && (
+                <button
+                    onClick={onReset}
+                    className="px-6 py-2 bg-gradient-to-br from-cyan-500 to-blue-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-cyan-500/50 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:ring-opacity-75 transition-all duration-300 transform hover:scale-105"
+                >
+                    {gameMode === 'practice' ? 'Reset' : (isGameActive || isGameOver ? 'New Game' : 'Start')}
+                </button>
+            )}
+            <button
+                onClick={onReturnToMenu}
+                className="px-6 py-1 bg-slate-700 text-slate-300 text-sm font-semibold rounded-lg hover:bg-slate-600 transition-all duration-300"
+            >
+                Menu
+            </button>
         </div>
-    );
-  }
-
-  if (isGameActive) {
-    return renderInGameStats();
-  }
-
-  return renderPreGameControls();
+    </div>
+  );
 };
 
 export default ControlPanel;

@@ -1,0 +1,14 @@
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  /* Prevent pull-to-refresh and other gestures on mobile */
+  overscroll-behavior: none;
+}
+
+body {
+  position: fixed;
+  width: 100vw;
+  height: 100vh;
+}

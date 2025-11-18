@@ -25,7 +25,7 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onClose, le
 
   return (
     <div className="absolute inset-0 bg-black/70 flex items-center justify-center backdrop-blur-sm z-50" onClick={onClose}>
-      <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-lg text-center" onClick={e => e.stopPropagation()}>
+      <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-lg text-center mx-4" onClick={e => e.stopPropagation()}>
         <h2 className="text-3xl font-bold text-cyan-400 mb-6">Leaderboard</h2>
         
         {leaderboard.length > 0 ? (

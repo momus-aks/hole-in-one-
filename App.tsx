@@ -1,66 +1,82 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { io, Socket } from 'socket.io-client';
 import GameCanvas from './components/GameCanvas';
 import Header from './components/Header';
 import ControlPanel from './components/ControlPanel';
 import HighScoreModal from './components/HighScoreModal';
 import LeaderboardModal from './components/LeaderboardModal';
-import { HighScore } from './types';
+import MainMenu from './components/MainMenu';
+import WaitingRoom from './components/WaitingRoom';
+import { HighScore, GameState, Vector2D, Player } from './types';
 
 export type Difficulty = 'normal' | 'advanced' | 'maximum';
+export type GameMode = 'menu' | 'singleplayer' | 'findingMatch' | 'onlineMultiplayer' | 'localMultiplayer' | 'practice';
 
 const INITIAL_GAME_DURATION = 30; // seconds
 const HOLE_IN_ONE_BONUS = 5; // seconds
 const STREAK_FOR_BONUS = 3;
 
+// IMPORTANT: Replace with your actual backend server URL
+const SERVER_URL = 'http://localhost:8080';
+
 const App: React.FC = () => {
+  // Single player state
   const [score, setScore] = useState<number>(0);
+  const [holeInOneStreak, setHoleInOneStreak] = useState<number>(0);
+  const [isTripleGoalBonusAvailable, setIsTripleGoalBonusAvailable] = useState<boolean>(false);
+  const [isTripleGoalBonusActive, setIsTripleGoalBonusActive] = useState<boolean>(false);
+
+  // Shared game state
   const [gameDuration, setGameDuration] = useState<number>(INITIAL_GAME_DURATION);
   const [timeLeft, setTimeLeft] = useState<number>(INITIAL_GAME_DURATION);
   const [isGameActive, setIsGameActive] = useState<boolean>(false);
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
   const [resetKey, setResetKey] = useState<number>(0);
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  
+  // Game mode state
+  const [gameMode, setGameMode] = useState<GameMode>('menu');
+
+  // Local Multiplayer state
+  const [localPlayerScores, setLocalPlayerScores] = useState({ p1: 0, p2: 0 });
+
+  // Online Multiplayer State
+  const socketRef = useRef<Socket | null>(null);
+  const [onlineGameState, setOnlineGameState] = useState<GameState | null>(null);
+  const [playerNumber, setPlayerNumber] = useState<1 | 2 | null>(null);
+  const playerNumberRef = useRef(playerNumber);
+  const [onlineWinner, setOnlineWinner] = useState<1 | 2 | 'tie' | null>(null);
+
+
+  // Leaderboard state
   const [leaderboard, setLeaderboard] = useState<HighScore[]>([]);
   const [isHighScoreModalOpen, setIsHighScoreModalOpen] = useState<boolean>(false);
   const [isLeaderboardModalOpen, setIsLeaderboardModalOpen] = useState<boolean>(false);
-  
-  const [holeInOneStreak, setHoleInOneStreak] = useState<number>(0);
-  const [isTripleGoalBonusAvailable, setIsTripleGoalBonusAvailable] = useState<boolean>(false);
-  const [isTripleGoalBonusActive, setIsTripleGoalBonusActive] = useState<boolean>(false);
-
-  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
 
   useEffect(() => {
     try {
-      const savedLeaderboard = localStorage.getItem('projectionPuttLeaderboard');
+      const savedLeaderboard = localStorage.getItem('holeInOneLeaderboard');
       if (savedLeaderboard) {
-        const parsedLeaderboard = JSON.parse(savedLeaderboard);
-        // Backwards compatibility for old leaderboards without difficulty
-        const leaderboardWithDifficulty = parsedLeaderboard.map((score: HighScore) => ({
-          ...score,
-          difficulty: score.difficulty || 'normal',
-        }));
-        setLeaderboard(leaderboardWithDifficulty);
+        setLeaderboard(JSON.parse(savedLeaderboard));
       }
     } catch (error) {
       console.error("Failed to load leaderboard from localStorage", error);
     }
   }, []);
 
+  // Timer Effect for Single Player and Local Multiplayer
   useEffect(() => {
-    if (holeInOneStreak >= STREAK_FOR_BONUS && !isTripleGoalBonusActive) {
-      setIsTripleGoalBonusAvailable(true);
-    }
-  }, [holeInOneStreak, isTripleGoalBonusActive]);
-
-  useEffect(() => {
+    if (gameMode !== 'singleplayer' && gameMode !== 'localMultiplayer') return;
     if (!isGameActive || isGameOver) return;
 
     if (timeLeft <= 0) {
       setIsGameActive(false);
       setIsGameOver(true);
-      const isNewHighScore = score > 0 && (leaderboard.length < 5 || score > leaderboard[leaderboard.length - 1].score);
-      if (isNewHighScore) {
-        setIsHighScoreModalOpen(true);
+      if (gameMode === 'singleplayer') {
+        const isNewHighScore = score > 0 && (leaderboard.length < 5 || score > leaderboard[leaderboard.length - 1].score);
+        if (isNewHighScore) {
+          setIsHighScoreModalOpen(true);
+        }
       }
       return;
     }
@@ -70,50 +86,154 @@ const App: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(timerId);
-  }, [isGameActive, timeLeft, isGameOver, score, leaderboard]);
-
-  const handleBallInHole = useCallback((shotCount: number) => {
-    if (isGameActive) {
-      setScore(prev => prev + 1);
-
-      if (shotCount === 1) { // Hole in one
-        setTimeLeft(prev => prev + HOLE_IN_ONE_BONUS);
-        setHoleInOneStreak(prev => prev + 1);
-      } else {
-        setHoleInOneStreak(0);
-      }
-    }
-  }, [isGameActive]);
+  }, [isGameActive, timeLeft, isGameOver, score, leaderboard, gameMode]);
   
-  const handleActivateBonus = useCallback(() => {
-    if (!isTripleGoalBonusAvailable) return;
-    setIsTripleGoalBonusAvailable(false);
-    setIsTripleGoalBonusActive(true);
-    setHoleInOneStreak(0); // Reset streak after using bonus
-  }, [isTripleGoalBonusAvailable]);
+  useEffect(() => {
+    playerNumberRef.current = playerNumber;
+  }, [playerNumber]);
 
-  const handleBonusUsed = useCallback(() => {
-    setIsTripleGoalBonusActive(false);
+  // Socket.IO Connection and Event Handlers
+  useEffect(() => {
+    // Connect if we are entering an online mode and there's no active connection.
+    if ((gameMode === 'findingMatch' || gameMode === 'onlineMultiplayer') && !socketRef.current) {
+        const socket = io(SERVER_URL);
+        socketRef.current = socket;
+
+        socket.on('connect', () => {
+            console.log('Connected to server!');
+        });
+
+        socket.on('waitingForOpponent', () => {
+            console.log('Waiting for an opponent...');
+            setGameMode('findingMatch');
+        });
+
+        socket.on('gameStart', (data: GameState & { yourPlayerNumber: 1 | 2 }) => {
+            console.log('Game starting!', data);
+            setOnlineGameState(data);
+            setPlayerNumber(data.yourPlayerNumber);
+            setGameMode('onlineMultiplayer');
+            setIsGameOver(false);
+            setOnlineWinner(null);
+        });
+        
+        socket.on('gameStateUpdate', (stateUpdate: Partial<GameState>) => {
+            setOnlineGameState(prevState => prevState ? { ...prevState, ...stateUpdate } : null);
+        });
+
+        socket.on('goalScored', (data: { scoringPlayerNumber: 1 | 2, newScores: { p1: number, p2: number }, newHolePosition: Vector2D }) => {
+            setOnlineGameState(prevState => {
+                if (!prevState) return null;
+                // Safely update nested player scores to avoid mutation
+                const newPlayers: [Player, Player] = [
+                    { ...prevState.players[0], score: data.newScores.p1 },
+                    { ...prevState.players[1], score: data.newScores.p2 },
+                ];
+                return {
+                    ...prevState,
+                    players: newPlayers,
+                    holePosition: data.newHolePosition,
+                };
+            });
+        });
+
+        socket.on('gameOver', (data: { winner: 1 | 2 | 'tie', finalScores: { p1: number, p2: number } }) => {
+            console.log('Game Over!', data);
+            setIsGameOver(true);
+            setOnlineWinner(data.winner);
+        });
+        
+        socket.on('opponentDisconnect', () => {
+            console.log('Opponent disconnected');
+            setIsGameOver(true);
+            setOnlineWinner(playerNumberRef.current); // You win by default
+        });
+    } 
+    // Disconnect if we are NOT in an online mode but a connection exists.
+    else if (gameMode !== 'findingMatch' && gameMode !== 'onlineMultiplayer' && socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+    }
+
+  }, [gameMode]);
+
+  // Effect to handle cleanup on component unmount
+  useEffect(() => {
+    return () => {
+        if (socketRef.current) {
+            socketRef.current.disconnect();
+            socketRef.current = null;
+        }
+    };
   }, []);
 
 
+  const handleBallInHole = useCallback((data: { shotCount: number, scoringPlayer?: 1 | 2 }) => {
+      if (gameMode === 'singleplayer') {
+        setScore(prev => prev + 1);
+        if (data.shotCount === 1) { // Hole in one
+          setTimeLeft(prev => prev + HOLE_IN_ONE_BONUS);
+          setHoleInOneStreak(prev => prev + 1);
+        } else {
+          setHoleInOneStreak(0);
+        }
+      } else if (gameMode === 'localMultiplayer') {
+         if (data.scoringPlayer) {
+            setLocalPlayerScores(prevScores => {
+                return data.scoringPlayer === 1 
+                ? { ...prevScores, p1: prevScores.p1 + 1 }
+                : { ...prevScores, p2: prevScores.p2 + 1 };
+            });
+        }
+      }
+  }, [gameMode]);
+  
+  const handleBallStop = useCallback(() => {
+    // No longer used for switching turns in local multiplayer
+  }, []);
+  
   const handleShot = useCallback(() => {
-    if (!isGameActive && !isGameOver) {
+    if (!isGameActive && !isGameOver && (gameMode === 'singleplayer' || gameMode === 'localMultiplayer' || gameMode === 'practice')) {
       setIsGameActive(true);
     }
-  }, [isGameActive, isGameOver]);
+  }, [isGameActive, isGameOver, gameMode]);
+
+  const handleOnlineShot = useCallback((velocity: Vector2D) => {
+    socketRef.current?.emit('playerShoot', { velocity });
+  }, []);
 
   const handleReset = useCallback(() => {
-    setScore(0);
     setTimeLeft(gameDuration);
     setIsGameActive(false);
     setIsGameOver(false);
-    setHoleInOneStreak(0);
-    setIsTripleGoalBonusAvailable(false);
-    setIsTripleGoalBonusActive(false);
     setResetKey(prev => prev + 1);
-  }, [gameDuration]);
+
+    if (gameMode === 'singleplayer') {
+      setScore(0);
+      setHoleInOneStreak(0);
+    } else if (gameMode === 'localMultiplayer') {
+      setLocalPlayerScores({ p1: 0, p2: 0 });
+    }
+  }, [gameDuration, gameMode]);
   
+  const startGame = useCallback((mode: Exclude<GameMode, 'menu' | 'findingMatch'>) => {
+    setGameMode(mode);
+    if (mode === 'onlineMultiplayer') {
+      setGameMode('findingMatch');
+      socketRef.current?.emit('findMatch');
+    } else {
+      setTimeout(() => handleReset(), 0);
+    }
+  }, [handleReset]);
+
+  const handleReturnToMenu = () => {
+    setGameMode('menu');
+    setIsGameActive(false);
+    setIsGameOver(false);
+    setOnlineGameState(null);
+    setPlayerNumber(null);
+  };
+
   const handleSaveHighScore = (name: string) => {
     const newScore = { name, score, difficulty };
     const newLeaderboard = [...leaderboard, newScore]
@@ -121,7 +241,7 @@ const App: React.FC = () => {
       .slice(0, 5);
       
     try {
-        localStorage.setItem('projectionPuttLeaderboard', JSON.stringify(newLeaderboard));
+        localStorage.setItem('holeInOneLeaderboard', JSON.stringify(newLeaderboard));
         setLeaderboard(newLeaderboard);
     } catch (error) {
         console.error("Failed to save leaderboard to localStorage", error);
@@ -133,91 +253,72 @@ const App: React.FC = () => {
     setDifficulty(newDifficulty);
     handleReset();
   };
-  
-  const handleChangeGameDuration = (increment: number) => {
-    setGameDuration(prev => {
-        const newTime = prev + increment;
-        if (newTime >= 30 && newTime <= 180) { // Min 30s, Max 180s
-            setTimeLeft(newTime); // also update timeLeft immediately
-            return newTime;
-        }
-        return prev;
-    });
-  };
 
-  const isActiveOrOver = isGameActive || isGameOver;
+  if (gameMode === 'menu') {
+    return (
+      <div className="h-full w-full bg-slate-900 text-white flex flex-col items-center justify-center font-sans p-4 overflow-hidden">
+        <MainMenu onStartGame={startGame} />
+      </div>
+    );
+  }
 
-  const controlPanelProps = {
-    score,
-    timeLeft,
-    isGameActive,
-    isGameOver,
-    onReset: handleReset,
-    highScore: leaderboard.length > 0 ? leaderboard[0] : null,
-    holeInOneStreak,
-    isTripleGoalBonusAvailable,
-    onActivateBonus: handleActivateBonus,
-    difficulty,
-    onChangeDifficulty: handleChangeDifficulty,
-    onShowLeaderboard: () => setIsLeaderboardModalOpen(true),
-    gameDuration,
-    onChangeGameDuration: handleChangeGameDuration,
-  };
-
-  const gameCanvasProps = {
-      key: resetKey,
-      onBallInHole: handleBallInHole,
-      onShot: handleShot,
-      isGameOver,
-      isTripleGoalBonusActive,
-      onBonusUsed: handleBonusUsed,
-      difficulty,
-      isGameActive,
-  };
+  if (gameMode === 'findingMatch') {
+      return (
+         <div className="h-full w-full bg-slate-900 text-white flex flex-col items-center justify-center font-sans p-4 overflow-hidden">
+            <WaitingRoom onCancel={handleReturnToMenu} />
+         </div>
+      );
+  }
 
   return (
-    <div className="h-screen bg-slate-900 text-white flex flex-col font-sans overflow-hidden">
-      {!isActiveOrOver ? (
-        // PRE-GAME LAYOUT
-        <>
-          <div className="w-full max-w-4xl mx-auto flex flex-col items-center p-4 flex-grow">
-            <Header gameDuration={gameDuration} />
-            <div className="relative w-full mb-4 flex-grow flex items-center">
-                <GameCanvas {...gameCanvasProps} />
-            </div>
-            <ControlPanel {...controlPanelProps} />
-          </div>
-          <footer className="text-center text-slate-500 text-sm py-2 shrink-0">
-              Developed by AKS
-          </footer>
-        </>
-      ) : isGameActive ? (
-        // IN-GAME LAYOUT
-        <>
-          <ControlPanel {...controlPanelProps} />
-          <div className="relative w-full flex-grow">
-            <GameCanvas {...gameCanvasProps} />
-          </div>
-        </>
-      ) : ( // isGameOver
-        // GAME-OVER LAYOUT
-        <div className="relative w-full flex-grow">
-          <GameCanvas {...gameCanvasProps} />
-          <ControlPanel {...controlPanelProps} />
-        </div>
-      )}
-
-      <HighScoreModal
-        isOpen={isHighScoreModalOpen}
-        score={score}
-        onSave={handleSaveHighScore}
-        leaderboard={leaderboard}
-      />
-      <LeaderboardModal
-        isOpen={isLeaderboardModalOpen}
-        leaderboard={leaderboard}
-        onClose={() => setIsLeaderboardModalOpen(false)}
-      />
+    <div className="h-full w-full bg-slate-900 text-white flex flex-col items-center justify-center font-sans p-2 sm:p-4 overflow-hidden">
+      <div className="w-full h-full max-w-4xl mx-auto flex flex-col items-center relative">
+        <Header gameDuration={gameDuration} gameMode={gameMode} />
+        <GameCanvas
+          key={resetKey}
+          onBallInHole={handleBallInHole}
+          onShot={gameMode === 'onlineMultiplayer' ? handleOnlineShot : handleShot}
+          isGameOver={isGameOver}
+          difficulty={difficulty}
+          onBallStop={handleBallStop}
+          // Online MP props
+          gameMode={gameMode}
+          onlineGameState={onlineGameState}
+          playerNumber={playerNumber}
+        />
+        <ControlPanel
+          score={score}
+          timeLeft={gameMode === 'onlineMultiplayer' ? (onlineGameState?.timeLeft ?? 0) : timeLeft}
+          isGameActive={gameMode === 'onlineMultiplayer' ? onlineGameState?.status === 'active' : isGameActive}
+          isGameOver={isGameOver}
+          onReset={handleReset}
+          highScore={leaderboard.length > 0 ? leaderboard[0] : null}
+          holeInOneStreak={holeInOneStreak}
+          difficulty={difficulty}
+          onChangeDifficulty={handleChangeDifficulty}
+          onShowLeaderboard={() => setIsLeaderboardModalOpen(true)}
+          gameDuration={gameDuration}
+          gameMode={gameMode}
+          onReturnToMenu={handleReturnToMenu}
+          // Local MP Props
+          playerScores={localPlayerScores}
+          // Online MP Props
+          onlinePlayerScores={onlineGameState ? {p1: onlineGameState.players[0].score, p2: onlineGameState.players[1].score } : {p1: 0, p2: 0}}
+          onlineCurrentPlayer={playerNumber ?? 1} // Simplification, server drives state
+          onlineWinner={onlineWinner}
+        />
+        <HighScoreModal
+          isOpen={isHighScoreModalOpen}
+          score={score}
+          onSave={handleSaveHighScore}
+          leaderboard={leaderboard}
+        />
+        <LeaderboardModal
+          isOpen={isLeaderboardModalOpen}
+          leaderboard={leaderboard}
+          onClose={() => setIsLeaderboardModalOpen(false)}
+        />
+      </div>
     </div>
   );
 };
