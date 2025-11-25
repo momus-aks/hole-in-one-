@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect } from 'react';
 import { Vector2D, GameState, Obstacle } from '../types';
 import { Difficulty, GameMode } from '../App';
@@ -57,6 +58,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const startDragPos = useRef<Vector2D | null>(null);
   const endDragPos = useRef<Vector2D | null>(null);
   const animationFrameId = useRef<number>(0);
+  
+  // Wind state
+  const currentWind = useRef<Vector2D>({ x: 0, y: 0 });
 
   const onBallInHoleRef = useRef(onBallInHole);
   const onShotRef = useRef(onShot);
@@ -68,19 +72,62 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     onBallStopRef.current = onBallStop;
   });
   
+   const generateWind = () => {
+        let maxForce = 0;
+        if (difficulty === 'normal') maxForce = 0.01; // Tiny breeze
+        if (difficulty === 'advanced') maxForce = 0.04; // Noticeable
+        if (difficulty === 'maximum') maxForce = 0.08; // Strong
+
+        const angle = Math.random() * Math.PI * 2;
+        const force = Math.random() * maxForce;
+
+        currentWind.current = {
+            x: Math.cos(angle) * force,
+            y: Math.sin(angle) * force
+        };
+   };
+
    const randomizeHolePosition = (canvas: HTMLCanvasElement) => {
         const padding = 50;
         let newHolePos: Vector2D;
         let validPosition = false;
-        while(!validPosition) {
+        let attempts = 0;
+
+        while(!validPosition && attempts < 100) {
+            attempts++;
             newHolePos = {
                 x: Math.random() * (canvas.width - padding * 2) + padding,
                 y: Math.random() * (canvas.height - padding * 2) + padding,
             };
             const distFromStart = Math.sqrt((newHolePos.x - 100) ** 2 + (newHolePos.y - 250) ** 2);
             if (distFromStart < 200) continue;
+            
+            let overlapsObstacle = false;
+            for (const obs of obstacles.current) {
+                // Check collision between hole (circle) and obstacle (rectangle)
+                const closestX = Math.max(obs.x, Math.min(newHolePos.x, obs.x + obs.width));
+                const closestY = Math.max(obs.y, Math.min(newHolePos.y, obs.y + obs.height));
+                
+                const dx = newHolePos.x - closestX;
+                const dy = newHolePos.y - closestY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // Ensure hole is at least 15px away from any obstacle edge
+                if (distance < HOLE_RADIUS + 15) {
+                    overlapsObstacle = true;
+                    break;
+                }
+            }
+
+            if (overlapsObstacle) continue;
+
             holePos.current = newHolePos;
             validPosition = true;
+        }
+
+        if (!validPosition) {
+             // Fallback
+             holePos.current = { x: canvas.width - 100, y: canvas.height / 2 };
         }
     };
 
@@ -94,7 +141,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         for (let i = 0; i < obstacleCount; i++) {
             let newObstacle: Obstacle;
             let valid = false;
-            while (!valid) {
+            let attempts = 0;
+            while (!valid && attempts < 100) {
+                attempts++;
                 const width = Math.random() * 80 + 20;
                 const height = Math.random() * 80 + 20;
                 const x = Math.random() * (canvas.width - width);
@@ -194,6 +243,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const reset = () => {
         generateObstacles(canvas);
         randomizeHolePosition(canvas);
+        generateWind(); // Generate new wind pattern
         shotCount.current = 0;
         isRoundOver.current = false;
         if (gameMode === 'localMultiplayer') {
@@ -210,17 +260,77 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
     reset();
 
+    const drawGrid = () => {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.lineWidth = 1;
+        const gridSize = 40;
+
+        ctx.beginPath();
+        for (let x = 0; x <= canvas.width; x += gridSize) {
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvas.height);
+        }
+        for (let y = 0; y <= canvas.height; y += gridSize) {
+            ctx.moveTo(0, y);
+            ctx.lineTo(canvas.width, y);
+        }
+        ctx.stroke();
+    };
+
+    const drawWindIndicator = () => {
+        if (gameMode === 'onlineMultiplayer' || gameMode === 'menu') return;
+
+        const wx = currentWind.current.x;
+        const wy = currentWind.current.y;
+        const magnitude = Math.sqrt(wx * wx + wy * wy);
+        if (magnitude < 0.001) return; // Hide if basically no wind
+
+        const angle = Math.atan2(wy, wx);
+        const arrowLen = 30;
+        const centerX = 50;
+        const centerY = 50;
+        
+        // Display Text
+        ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+        ctx.font = "10px font-bold sans-serif";
+        ctx.textAlign = "center";
+        const mph = Math.round(magnitude * 100);
+        ctx.fillText(`WIND ${mph}`, centerX, centerY + 25);
+
+        // Draw Arrow
+        ctx.strokeStyle = "rgba(6, 182, 212, 0.8)"; // Cyan
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX - Math.cos(angle) * (arrowLen/2), centerY - Math.sin(angle) * (arrowLen/2));
+        ctx.lineTo(centerX + Math.cos(angle) * (arrowLen/2), centerY + Math.sin(angle) * (arrowLen/2));
+        
+        // Arrow head
+        const headLen = 8;
+        const endX = centerX + Math.cos(angle) * (arrowLen/2);
+        const endY = centerY + Math.sin(angle) * (arrowLen/2);
+        ctx.lineTo(endX - headLen * Math.cos(angle - Math.PI / 6), endY - headLen * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX - headLen * Math.cos(angle + Math.PI / 6), endY - headLen * Math.sin(angle + Math.PI / 6));
+        ctx.stroke();
+    };
+
     const drawHole = (pos: Vector2D, color: string) => {
         ctx.save();
         ctx.shadowColor = color;
-        ctx.shadowBlur = 20;
-        const gradient = ctx.createRadialGradient(pos.x, pos.y, HOLE_RADIUS * 0.2, pos.x, pos.y, HOLE_RADIUS);
+        ctx.shadowBlur = 30; // Increased glow
+        const gradient = ctx.createRadialGradient(pos.x, pos.y, HOLE_RADIUS * 0.1, pos.x, pos.y, HOLE_RADIUS);
         gradient.addColorStop(0, '#000');
-        gradient.addColorStop(1, '#222');
+        gradient.addColorStop(0.8, '#111');
+        gradient.addColorStop(1, color); // Colored rim
         ctx.fillStyle = gradient;
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, HOLE_RADIUS, 0, Math.PI * 2);
         ctx.fill();
+        
+        // Add a ring
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
         ctx.restore();
     };
 
@@ -238,35 +348,52 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             if (!canvas) return;
             multiBalls.current[0] = { pos: { x: 100, y: 225 }, vel: { x: 0, y: 0 }, isMoving: false, inHole: false };
             multiBalls.current[1] = { pos: { x: 100, y: 275 }, vel: { x: 0, y: 0 }, isMoving: false, inHole: false };
+            generateObstacles(canvas);
             randomizeHolePosition(canvas);
+            generateWind(); // Change wind on goal
             isRoundOver.current = false;
-        }, 200);
+        }, 500); // Slightly longer delay to appreciate the goal
     };
 
     const gameLoop = () => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#1e293b';
+        
+        // Background with Grid
+        const bgGradient = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, canvas.width);
+        bgGradient.addColorStop(0, '#1e293b');
+        bgGradient.addColorStop(1, '#0f172a');
+        ctx.fillStyle = bgGradient;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawGrid();
 
-        // Draw Obstacles (shared)
+        // Draw Wind
+        drawWindIndicator();
+
+        // Draw Obstacles (shared) - with cleaner look
         const currentObstacles = gameMode === 'onlineMultiplayer' && onlineGameState ? onlineGameState.obstacles : obstacles.current;
-        ctx.fillStyle = '#475569';
+        ctx.fillStyle = '#334155';
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 2;
         currentObstacles.forEach(obs => {
             ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+            ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
         });
 
         // Draw Hole (shared)
         const currentHolePos = gameMode === 'onlineMultiplayer' && onlineGameState ? onlineGameState.holePosition : holePos.current;
-        drawHole(currentHolePos, '#06b6d4');
+        drawHole(currentHolePos, '#06b6d4'); // Cyan hole
 
 
         // --- RENDER BASED ON MODE ---
         if (gameMode === 'onlineMultiplayer' && onlineGameState) {
              onlineGameState.players.forEach(p => {
                 ctx.fillStyle = p.playerNumber === 1 ? '#fff' : '#ef4444';
+                ctx.shadowColor = p.playerNumber === 1 ? '#fff' : '#ef4444';
+                ctx.shadowBlur = 10;
                 ctx.beginPath();
                 ctx.arc(p.ball.position.x, p.ball.position.y, BALL_RADIUS, 0, Math.PI * 2);
                 ctx.fill();
+                ctx.shadowBlur = 0;
             });
         } else if (gameMode === 'localMultiplayer') {
             // P2 keyboard aiming logic
@@ -280,6 +407,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             
             // Physics and drawing for both balls
             multiBalls.current.forEach((ball, index) => {
+                // Apply Wind if moving
+                if (ball.isMoving) {
+                    ball.vel.x += currentWind.current.x;
+                    ball.vel.y += currentWind.current.y;
+                }
+
                 ball.pos.x += ball.vel.x;
                 ball.pos.y += ball.vel.y;
                 ball.vel.x *= FRICTION;
@@ -315,9 +448,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
                 if (!ball.inHole) {
                     ctx.fillStyle = index === 0 ? '#fff' : '#ef4444';
+                    ctx.shadowColor = index === 0 ? '#fff' : '#ef4444';
+                    ctx.shadowBlur = 10;
                     ctx.beginPath();
                     ctx.arc(ball.pos.x, ball.pos.y, BALL_RADIUS, 0, Math.PI * 2);
                     ctx.fill();
+                    ctx.shadowBlur = 0;
                 }
             });
 
@@ -355,6 +491,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             ctx.fillText("P1: Mouse | P2: Arrow Keys + Spacebar", canvas.width / 2, 20);
 
         } else { // Single player or practice
+            // Apply Wind if moving
+            if (isSingleBallMoving.current) {
+                singleBallVel.current.x += currentWind.current.x;
+                singleBallVel.current.y += currentWind.current.y;
+            }
+
             singleBallPos.current.x += singleBallVel.current.x;
             singleBallPos.current.y += singleBallVel.current.y;
             singleBallVel.current.x *= FRICTION;
@@ -397,16 +539,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     singleBallPos.current = { x: 100, y: 250 };
                     isSingleBallMoving.current = false;
                     shotCount.current = 0;
+                    generateObstacles(canvas);
                     randomizeHolePosition(canvas);
+                    generateWind(); // Change wind on goal
                     isSingleBallInHole.current = false;
-                }, 200);
+                }, 500);
             }
             
             if (!isSingleBallInHole.current) {
                 ctx.fillStyle = '#fff';
+                ctx.shadowColor = '#fff';
+                ctx.shadowBlur = 12;
                 ctx.beginPath();
                 ctx.arc(singleBallPos.current.x, singleBallPos.current.y, BALL_RADIUS, 0, Math.PI * 2);
                 ctx.fill();
+                ctx.shadowBlur = 0;
             }
         }
 
@@ -432,7 +579,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             const dy = endDragPos.current.y - startDragPos.current.y;
             
             ctx.setLineDash([5, 5]);
-            ctx.strokeStyle = 'rgba(0, 255, 255, 0.7)';
+            ctx.strokeStyle = 'rgba(6, 182, 212, 0.8)'; // Cyan Aim
+            ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(aimBallPos.x, aimBallPos.y);
             ctx.lineTo(aimBallPos.x - dx, aimBallPos.y - dy);
@@ -538,12 +686,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   }, [isGameOver, difficulty, gameMode, onlineGameState, playerNumber]);
 
   return (
-    <div ref={containerRef} className="w-full flex-grow relative my-2 min-h-0">
+    <div ref={containerRef} className="w-full flex-grow relative my-2 landscape:my-0 min-h-0">
         <canvas
           ref={canvasRef}
           width={800}
           height={500}
-          className="bg-slate-800 rounded-xl shadow-inner border border-slate-700 absolute"
+          className="bg-slate-900 rounded-xl shadow-2xl border border-slate-700 absolute ring-1 ring-white/10"
         />
     </div>
   );

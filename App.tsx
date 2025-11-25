@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import GameCanvas from './components/GameCanvas';
@@ -7,21 +8,23 @@ import HighScoreModal from './components/HighScoreModal';
 import LeaderboardModal from './components/LeaderboardModal';
 import MainMenu from './components/MainMenu';
 import WaitingRoom from './components/WaitingRoom';
+import InGameHUD from './components/InGameHUD';
 import { HighScore, GameState, Vector2D, Player } from './types';
 
 export type Difficulty = 'normal' | 'advanced' | 'maximum';
 export type GameMode = 'menu' | 'singleplayer' | 'findingMatch' | 'onlineMultiplayer' | 'localMultiplayer' | 'practice';
 
-const INITIAL_GAME_DURATION = 30; // seconds
+const INITIAL_GAME_DURATION = 60; // seconds
 const HOLE_IN_ONE_BONUS = 5; // seconds
 const STREAK_FOR_BONUS = 3;
 
-// IMPORTANT: Replace with your actual backend server URL
-const SERVER_URL = 'http://localhost:8080';
+// Use 10.0.2.2 for Android Emulator to connect to the host machine's localhost
+const SERVER_URL = 'http://10.0.2.2:8080';
 
 const App: React.FC = () => {
   // Single player state
   const [score, setScore] = useState<number>(0);
+  const [totalShots, setTotalShots] = useState<number>(0);
   const [holeInOneStreak, setHoleInOneStreak] = useState<number>(0);
   const [isTripleGoalBonusAvailable, setIsTripleGoalBonusAvailable] = useState<boolean>(false);
   const [isTripleGoalBonusActive, setIsTripleGoalBonusActive] = useState<boolean>(false);
@@ -193,6 +196,11 @@ const App: React.FC = () => {
   }, []);
   
   const handleShot = useCallback(() => {
+    // Increment total shots for stats
+    if (gameMode === 'singleplayer' || gameMode === 'practice') {
+        setTotalShots(prev => prev + 1);
+    }
+
     if (!isGameActive && !isGameOver && (gameMode === 'singleplayer' || gameMode === 'localMultiplayer' || gameMode === 'practice')) {
       setIsGameActive(true);
     }
@@ -211,11 +219,16 @@ const App: React.FC = () => {
     if (gameMode === 'singleplayer') {
       setScore(0);
       setHoleInOneStreak(0);
+      setTotalShots(0);
     } else if (gameMode === 'localMultiplayer') {
       setLocalPlayerScores({ p1: 0, p2: 0 });
     }
   }, [gameDuration, gameMode]);
   
+  const handlePause = useCallback(() => {
+    setIsGameActive(false);
+  }, []);
+
   const startGame = useCallback((mode: Exclude<GameMode, 'menu' | 'findingMatch'>) => {
     setGameMode(mode);
     if (mode === 'onlineMultiplayer') {
@@ -256,7 +269,7 @@ const App: React.FC = () => {
 
   if (gameMode === 'menu') {
     return (
-      <div className="h-full w-full bg-slate-900 text-white flex flex-col items-center justify-center font-sans p-4 overflow-hidden">
+      <div className="h-full w-full bg-[#0f172a] text-white flex flex-col items-center justify-center font-sans p-4 overflow-hidden bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-800 via-slate-900 to-black">
         <MainMenu onStartGame={startGame} />
       </div>
     );
@@ -264,49 +277,78 @@ const App: React.FC = () => {
 
   if (gameMode === 'findingMatch') {
       return (
-         <div className="h-full w-full bg-slate-900 text-white flex flex-col items-center justify-center font-sans p-4 overflow-hidden">
+         <div className="h-full w-full bg-[#0f172a] text-white flex flex-col items-center justify-center font-sans p-4 overflow-hidden bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-800 via-slate-900 to-black">
             <WaitingRoom onCancel={handleReturnToMenu} />
          </div>
       );
   }
 
+  // Determine which UI elements to show
+  // We show the full UI (Header + Control Panel) if the game is NOT active OR if the game is Over.
+  // We show the HUD only if the game IS active and NOT over.
+  const showFullUI = !isGameActive || isGameOver;
+  const showHUD = isGameActive && !isGameOver;
+
   return (
-    <div className="h-full w-full bg-slate-900 text-white flex flex-col items-center justify-center font-sans p-2 sm:p-4 overflow-hidden">
-      <div className="w-full h-full max-w-4xl mx-auto flex flex-col items-center relative">
-        <Header gameDuration={gameDuration} gameMode={gameMode} />
-        <GameCanvas
-          key={resetKey}
-          onBallInHole={handleBallInHole}
-          onShot={gameMode === 'onlineMultiplayer' ? handleOnlineShot : handleShot}
-          isGameOver={isGameOver}
-          difficulty={difficulty}
-          onBallStop={handleBallStop}
-          // Online MP props
-          gameMode={gameMode}
-          onlineGameState={onlineGameState}
-          playerNumber={playerNumber}
-        />
-        <ControlPanel
-          score={score}
-          timeLeft={gameMode === 'onlineMultiplayer' ? (onlineGameState?.timeLeft ?? 0) : timeLeft}
-          isGameActive={gameMode === 'onlineMultiplayer' ? onlineGameState?.status === 'active' : isGameActive}
-          isGameOver={isGameOver}
-          onReset={handleReset}
-          highScore={leaderboard.length > 0 ? leaderboard[0] : null}
-          holeInOneStreak={holeInOneStreak}
-          difficulty={difficulty}
-          onChangeDifficulty={handleChangeDifficulty}
-          onShowLeaderboard={() => setIsLeaderboardModalOpen(true)}
-          gameDuration={gameDuration}
-          gameMode={gameMode}
-          onReturnToMenu={handleReturnToMenu}
-          // Local MP Props
-          playerScores={localPlayerScores}
-          // Online MP Props
-          onlinePlayerScores={onlineGameState ? {p1: onlineGameState.players[0].score, p2: onlineGameState.players[1].score } : {p1: 0, p2: 0}}
-          onlineCurrentPlayer={playerNumber ?? 1} // Simplification, server drives state
-          onlineWinner={onlineWinner}
-        />
+    <div className="h-full w-full bg-[#0f172a] text-white flex flex-col items-center justify-center font-sans p-2 sm:p-4 landscape:p-0 overflow-hidden bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-800 via-slate-900 to-black">
+      <div className="w-full h-full max-w-5xl mx-auto flex flex-col items-center relative">
+        
+        {showFullUI && (
+             <Header gameDuration={gameDuration} gameMode={gameMode} />
+        )}
+        
+        {/* Game Canvas Container */}
+        <div className="relative w-full flex-grow flex flex-col justify-center min-h-0">
+             <GameCanvas
+                key={resetKey}
+                onBallInHole={handleBallInHole}
+                onShot={gameMode === 'onlineMultiplayer' ? handleOnlineShot : handleShot}
+                isGameOver={isGameOver}
+                difficulty={difficulty}
+                onBallStop={handleBallStop}
+                // Online MP props
+                gameMode={gameMode}
+                onlineGameState={onlineGameState}
+                playerNumber={playerNumber}
+            />
+            
+            {showHUD && (
+                <InGameHUD 
+                    gameMode={gameMode}
+                    score={score}
+                    playerScores={localPlayerScores}
+                    onlinePlayerScores={onlineGameState ? {p1: onlineGameState.players[0].score, p2: onlineGameState.players[1].score } : {p1: 0, p2: 0}}
+                    timeLeft={gameMode === 'onlineMultiplayer' ? (onlineGameState?.timeLeft ?? 0) : timeLeft}
+                    onPause={handlePause}
+                />
+            )}
+        </div>
+
+        {showFullUI && (
+            <ControlPanel
+                score={score}
+                totalShots={totalShots}
+                timeLeft={gameMode === 'onlineMultiplayer' ? (onlineGameState?.timeLeft ?? 0) : timeLeft}
+                isGameActive={gameMode === 'onlineMultiplayer' ? onlineGameState?.status === 'active' : isGameActive}
+                isGameOver={isGameOver}
+                onReset={handleReset}
+                highScore={leaderboard.length > 0 ? leaderboard[0] : null}
+                holeInOneStreak={holeInOneStreak}
+                difficulty={difficulty}
+                onChangeDifficulty={handleChangeDifficulty}
+                onShowLeaderboard={() => setIsLeaderboardModalOpen(true)}
+                gameDuration={gameDuration}
+                gameMode={gameMode}
+                onReturnToMenu={handleReturnToMenu}
+                // Local MP Props
+                playerScores={localPlayerScores}
+                // Online MP Props
+                onlinePlayerScores={onlineGameState ? {p1: onlineGameState.players[0].score, p2: onlineGameState.players[1].score } : {p1: 0, p2: 0}}
+                onlineCurrentPlayer={playerNumber ?? 1} 
+                onlineWinner={onlineWinner}
+            />
+        )}
+
         <HighScoreModal
           isOpen={isHighScoreModalOpen}
           score={score}
