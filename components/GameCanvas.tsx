@@ -15,10 +15,17 @@ interface GameCanvasProps {
   playerNumber: 1 | 2 | null;
 }
 
+type ThemeType = 'classic_grass' | 'desert_sands' | 'midnight_space' | 'cyber_blueprint';
+
+interface PhysicsConfig {
+    friction: number;
+    bounce: number; // Restitution (0.0 = dead thud, 1.0 = perfect elastic)
+    label: string;
+    subLabel: string;
+}
 
 const BALL_RADIUS = 10;
 const HOLE_RADIUS = 15;
-const FRICTION = 0.98;
 const MIN_VELOCITY = 0.1;
 const MAX_POWER = 15;
 
@@ -34,6 +41,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Theme state
+  const currentTheme = useRef<ThemeType>('cyber_blueprint');
+  const currentPhysics = useRef<PhysicsConfig>({ friction: 0.975, bounce: 0.8, label: 'STANDARD', subLabel: 'Normal Conditions' });
   
   // Single player state
   const singleBallPos = useRef<Vector2D>({ x: 100, y: 250 });
@@ -58,6 +69,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const startDragPos = useRef<Vector2D | null>(null);
   const endDragPos = useRef<Vector2D | null>(null);
   const animationFrameId = useRef<number>(0);
+  const timeRef = useRef<number>(0); // For animations
   
   // Wind state
   const currentWind = useRef<Vector2D>({ x: 0, y: 0 });
@@ -241,6 +253,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     
     // Initial setup
     const reset = () => {
+        const themes: ThemeType[] = ['classic_grass', 'desert_sands', 'midnight_space', 'cyber_blueprint'];
+        currentTheme.current = themes[Math.floor(Math.random() * themes.length)];
+        
+        // SET PHYSICS BASED ON THEME
+        switch (currentTheme.current) {
+            case 'classic_grass':
+                currentPhysics.current = { friction: 0.975, bounce: 0.7, label: 'STANDARD', subLabel: 'Normal Bounce' };
+                break;
+            case 'desert_sands':
+                currentPhysics.current = { friction: 0.94, bounce: 0.4, label: 'HIGH FRICTION', subLabel: 'Sand Absorb' };
+                break;
+            case 'midnight_space':
+                currentPhysics.current = { friction: 0.995, bounce: 0.95, label: 'ZERO G', subLabel: 'Slippery' };
+                break;
+            case 'cyber_blueprint':
+                currentPhysics.current = { friction: 0.985, bounce: 1.0, label: 'ARCADE', subLabel: 'Max Bounce' };
+                break;
+        }
+
         generateObstacles(canvas);
         randomizeHolePosition(canvas);
         generateWind(); // Generate new wind pattern
@@ -260,78 +291,351 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
     reset();
 
-    const drawGrid = () => {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-        ctx.lineWidth = 1;
-        const gridSize = 40;
+    const drawBackground = () => {
+        const theme = currentTheme.current;
+        const w = canvas.width;
+        const h = canvas.height;
 
-        ctx.beginPath();
-        for (let x = 0; x <= canvas.width; x += gridSize) {
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, canvas.height);
-        }
-        for (let y = 0; y <= canvas.height; y += gridSize) {
-            ctx.moveTo(0, y);
-            ctx.lineTo(canvas.width, y);
-        }
-        ctx.stroke();
-    };
+        if (theme === 'classic_grass') {
+            // Grass Base
+            ctx.fillStyle = '#4ade80'; // lighter green
+            ctx.fillRect(0, 0, w, h);
+            
+            // Stripes
+            ctx.fillStyle = '#22c55e'; // darker green
+            const stripeWidth = 60;
+            for (let i = 0; i < w; i += stripeWidth * 2) {
+                ctx.fillRect(i, 0, stripeWidth, h);
+            }
+            
+            // Texture noise (simple dots)
+            ctx.fillStyle = 'rgba(0,0,0,0.03)';
+            for(let i=0; i<100; i++) {
+                const x = Math.random() * w;
+                const y = Math.random() * h;
+                const r = Math.random() * 2;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
-    const drawWindIndicator = () => {
+        } else if (theme === 'desert_sands') {
+            // Sand Base
+            ctx.fillStyle = '#fde047'; // warm yellow
+            ctx.fillRect(0, 0, w, h);
+            
+            // Dunes/Texture
+            ctx.fillStyle = '#facc15'; // darker yellow
+            for (let i = 0; i < h; i += 5) {
+                if (i % 20 === 0) ctx.globalAlpha = 0.1;
+                else ctx.globalAlpha = 0;
+                ctx.fillRect(0, i, w, 5);
+            }
+            ctx.globalAlpha = 1;
+
+            // Specks
+            ctx.fillStyle = '#b45309'; // brown specks
+            for(let i=0; i<300; i++) {
+                 const x = Math.random() * w;
+                 const y = Math.random() * h;
+                 ctx.fillRect(x, y, 1.5, 1.5);
+            }
+
+        } else if (theme === 'cyber_blueprint') {
+             // Blueprint Base
+            const bgGradient = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, w);
+            bgGradient.addColorStop(0, '#1e293b');
+            bgGradient.addColorStop(1, '#0f172a');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, w, h);
+
+            // Grid
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.lineWidth = 1;
+            const gridSize = 40;
+            ctx.beginPath();
+            for (let x = 0; x <= w; x += gridSize) {
+                ctx.moveTo(x, 0); ctx.lineTo(x, h);
+            }
+            for (let y = 0; y <= h; y += gridSize) {
+                ctx.moveTo(0, y); ctx.lineTo(w, y);
+            }
+            ctx.stroke();
+
+        } else { // midnight_space
+            // Space Base
+            ctx.fillStyle = '#020617'; // very dark slate
+            ctx.fillRect(0, 0, w, h);
+            
+            // Stars
+            ctx.fillStyle = '#fff';
+            // Simple stars
+            for (let x = 0; x < w; x+=50) {
+                for (let y = 0; y < h; y+=50) {
+                    if (Math.sin(x*y) > 0.5) {
+                        ctx.globalAlpha = Math.abs(Math.sin(timeRef.current * 0.002 + x));
+                        ctx.fillRect(x + Math.sin(y)*20, y + Math.cos(x)*20, 2, 2);
+                    }
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    const drawInfoOverlay = () => {
         if (gameMode === 'onlineMultiplayer' || gameMode === 'menu') return;
 
+        // WIND INDICATOR
         const wx = currentWind.current.x;
         const wy = currentWind.current.y;
         const magnitude = Math.sqrt(wx * wx + wy * wy);
-        if (magnitude < 0.001) return; // Hide if basically no wind
-
-        const angle = Math.atan2(wy, wx);
-        const arrowLen = 30;
+        
         const centerX = 50;
         const centerY = 50;
-        
-        // Display Text
-        ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+        const arrowLen = 30;
+
+        ctx.fillStyle = (currentTheme.current === 'classic_grass' || currentTheme.current === 'desert_sands') 
+            ? "rgba(0, 0, 0, 0.6)" 
+            : "rgba(255, 255, 255, 0.5)";
+            
         ctx.font = "10px font-bold sans-serif";
         ctx.textAlign = "center";
-        const mph = Math.round(magnitude * 100);
-        ctx.fillText(`WIND ${mph}`, centerX, centerY + 25);
-
-        // Draw Arrow
-        ctx.strokeStyle = "rgba(6, 182, 212, 0.8)"; // Cyan
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(centerX - Math.cos(angle) * (arrowLen/2), centerY - Math.sin(angle) * (arrowLen/2));
-        ctx.lineTo(centerX + Math.cos(angle) * (arrowLen/2), centerY + Math.sin(angle) * (arrowLen/2));
         
-        // Arrow head
-        const headLen = 8;
-        const endX = centerX + Math.cos(angle) * (arrowLen/2);
-        const endY = centerY + Math.sin(angle) * (arrowLen/2);
-        ctx.lineTo(endX - headLen * Math.cos(angle - Math.PI / 6), endY - headLen * Math.sin(angle - Math.PI / 6));
-        ctx.moveTo(endX, endY);
-        ctx.lineTo(endX - headLen * Math.cos(angle + Math.PI / 6), endY - headLen * Math.sin(angle + Math.PI / 6));
-        ctx.stroke();
+        if (magnitude > 0.001) {
+            const angle = Math.atan2(wy, wx);
+            const mph = Math.round(magnitude * 100);
+            ctx.fillText(`WIND ${mph}`, centerX, centerY + 25);
+
+            // Draw Arrow
+            ctx.strokeStyle = (currentTheme.current === 'classic_grass' || currentTheme.current === 'desert_sands') 
+                ? "rgba(6, 182, 212, 1)" 
+                : "rgba(6, 182, 212, 0.8)";
+
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX - Math.cos(angle) * (arrowLen/2), centerY - Math.sin(angle) * (arrowLen/2));
+            ctx.lineTo(centerX + Math.cos(angle) * (arrowLen/2), centerY + Math.sin(angle) * (arrowLen/2));
+            
+            // Arrow head
+            const headLen = 8;
+            const endX = centerX + Math.cos(angle) * (arrowLen/2);
+            const endY = centerY + Math.sin(angle) * (arrowLen/2);
+            ctx.lineTo(endX - headLen * Math.cos(angle - Math.PI / 6), endY - headLen * Math.sin(angle - Math.PI / 6));
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(endX - headLen * Math.cos(angle + Math.PI / 6), endY - headLen * Math.sin(angle + Math.PI / 6));
+            ctx.stroke();
+        }
+
+        // PHYSICS INDICATOR (Top Right)
+        const physX = canvas.width - 70;
+        const physY = 50;
+        
+        ctx.fillStyle = (currentTheme.current === 'classic_grass' || currentTheme.current === 'desert_sands') 
+            ? "rgba(0, 0, 0, 0.8)" 
+            : "rgba(255, 255, 255, 0.9)";
+        
+        ctx.font = "bold 12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(currentPhysics.current.label, physX, physY);
+        
+        ctx.fillStyle = (currentTheme.current === 'classic_grass' || currentTheme.current === 'desert_sands') 
+            ? "rgba(0, 0, 0, 0.5)" 
+            : "rgba(255, 255, 255, 0.5)";
+        ctx.font = "10px sans-serif";
+        ctx.fillText(currentPhysics.current.subLabel, physX, physY + 12);
     };
 
-    const drawHole = (pos: Vector2D, color: string) => {
+    const drawFlag = (pos: Vector2D) => {
+        const poleHeight = 40;
+        const flagWidth = 25;
+        const flagHeight = 15;
+        
+        // Pole
+        ctx.strokeStyle = (currentTheme.current === 'midnight_space' || currentTheme.current === 'cyber_blueprint') 
+            ? '#94a3b8' : '#334155'; // lighter pole in dark themes
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        ctx.lineTo(pos.x, pos.y - poleHeight);
+        ctx.stroke();
+        
+        // Hole Shadow/Base
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(pos.x, pos.y, 5, 2, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Animated Flag
+        ctx.fillStyle = '#ef4444'; // Red flag
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y - poleHeight);
+        
+        // Sine wave for waving effect
+        const waveFreq = 0.2; // speed
+        const waveAmp = 3;   // height of wave
+        const time = timeRef.current;
+        
+        // Top edge of flag
+        for (let i = 0; i <= flagWidth; i++) {
+            const yOffset = Math.sin((time * waveFreq) + (i * 0.5)) * (i / flagWidth) * waveAmp;
+            ctx.lineTo(pos.x + i, pos.y - poleHeight + yOffset);
+        }
+        
+        // Right edge
+        const rightYOffset = Math.sin((time * waveFreq) + (flagWidth * 0.5)) * waveAmp;
+        ctx.lineTo(pos.x + flagWidth, pos.y - poleHeight + flagHeight + rightYOffset);
+        
+        // Bottom edge
+        for (let i = flagWidth; i >= 0; i--) {
+            const yOffset = Math.sin((time * waveFreq) + (i * 0.5)) * (i / flagWidth) * waveAmp;
+            ctx.lineTo(pos.x + i, pos.y - poleHeight + flagHeight + yOffset);
+        }
+        
+        ctx.closePath();
+        ctx.fill();
+    };
+
+    const drawHole = (pos: Vector2D) => {
         ctx.save();
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 30; // Increased glow
-        const gradient = ctx.createRadialGradient(pos.x, pos.y, HOLE_RADIUS * 0.1, pos.x, pos.y, HOLE_RADIUS);
-        gradient.addColorStop(0, '#000');
-        gradient.addColorStop(0.8, '#111');
-        gradient.addColorStop(1, color); // Colored rim
-        ctx.fillStyle = gradient;
+        
+        let glowColor = '#06b6d4'; // Default Cyan
+        if (currentTheme.current === 'desert_sands') glowColor = '#d97706';
+        if (currentTheme.current === 'classic_grass') glowColor = '#15803d';
+        if (currentTheme.current === 'midnight_space') glowColor = '#8b5cf6';
+
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 20;
+        
+        // Hole itself
+        ctx.fillStyle = '#0f172a'; // dark hole
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, HOLE_RADIUS, 0, Math.PI * 2);
         ctx.fill();
         
-        // Add a ring
-        ctx.strokeStyle = color;
+        // Ring
+        ctx.strokeStyle = glowColor;
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.restore();
+    };
+
+    const drawObstacle = (obs: Obstacle) => {
+        const theme = currentTheme.current;
+        const { x, y, width, height } = obs;
+
+        if (theme === 'classic_grass') {
+            // Wooden Crate Look
+            const plankCount = 4;
+            const plankHeight = height / plankCount;
+            
+            // Main Fill
+            ctx.fillStyle = '#78350f'; // Dark wood
+            ctx.fillRect(x, y, width, height);
+
+            // Planks
+            ctx.fillStyle = '#92400e'; // Lighter wood
+            for(let i=0; i<plankCount; i++) {
+                ctx.fillRect(x + 2, y + i * plankHeight + 2, width - 4, plankHeight - 4);
+            }
+
+            // Frame/Border
+            ctx.strokeStyle = '#451a03'; // Very dark brown
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, width, height);
+
+            // X-Brace
+            ctx.beginPath();
+            ctx.moveTo(x, y); ctx.lineTo(x + width, y + height);
+            ctx.moveTo(x + width, y); ctx.lineTo(x, y + height);
+            ctx.stroke();
+
+            // Bolts
+            ctx.fillStyle = '#d4d4d4'; // Silver
+            const boltSize = 3;
+            ctx.beginPath();
+            ctx.arc(x + 5, y + 5, boltSize, 0, Math.PI*2);
+            ctx.arc(x + width - 5, y + 5, boltSize, 0, Math.PI*2);
+            ctx.arc(x + 5, y + height - 5, boltSize, 0, Math.PI*2);
+            ctx.arc(x + width - 5, y + height - 5, boltSize, 0, Math.PI*2);
+            ctx.fill();
+
+        } else if (theme === 'desert_sands') {
+            // Sandstone Block
+            ctx.fillStyle = '#c2410c'; // Reddish sandstone
+            ctx.fillRect(x, y, width, height);
+            
+            // Texture (Noise)
+            ctx.fillStyle = 'rgba(0,0,0,0.1)';
+            for(let i=0; i< width * height / 50; i++) {
+                ctx.fillRect(x + Math.random() * width, y + Math.random() * height, 2, 2);
+            }
+
+            // Cracks
+            ctx.strokeStyle = 'rgba(67, 20, 7, 0.4)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x + width * 0.2, y + height * 0.2);
+            ctx.lineTo(x + width * 0.3, y + height * 0.4);
+            ctx.lineTo(x + width * 0.25, y + height * 0.5);
+            ctx.stroke();
+
+            // Border
+            ctx.strokeStyle = '#7c2d12';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, width, height);
+
+        } else if (theme === 'midnight_space') {
+            // Sci-Fi Metal Panel
+            const gradient = ctx.createLinearGradient(x, y, x + width, y + height);
+            gradient.addColorStop(0, '#334155');
+            gradient.addColorStop(1, '#0f172a');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x, y, width, height);
+
+            // Bevel
+            ctx.fillStyle = 'rgba(255,255,255,0.1)';
+            ctx.beginPath();
+            ctx.moveTo(x, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width - 5, y + 5); ctx.lineTo(x + 5, y + 5); ctx.lineTo(x + 5, y + height - 5); ctx.lineTo(x, y + height);
+            ctx.fill();
+
+            // Tech lines
+            ctx.strokeStyle = '#0ea5e9'; // Cyan neon
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x + 10, y + height / 2); ctx.lineTo(x + width - 10, y + height / 2);
+            ctx.stroke();
+
+            // Border
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, width, height);
+
+        } else if (theme === 'cyber_blueprint') {
+            // Holographic Block
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+            ctx.fillRect(x, y, width, height);
+
+            // Grid pattern inside
+            ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)'; // Faint cyan
+            ctx.lineWidth = 1;
+            const step = 10;
+            ctx.beginPath();
+            for(let ix = x; ix <= x + width; ix += step) {
+                ctx.moveTo(ix, y); ctx.lineTo(ix, y + height);
+            }
+            for(let iy = y; iy <= y + height; iy += step) {
+                ctx.moveTo(x, iy); ctx.lineTo(x + width, iy);
+            }
+            ctx.stroke();
+
+            // Glowing Border
+            ctx.strokeStyle = '#06b6d4';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#06b6d4';
+            ctx.shadowBlur = 10;
+            ctx.strokeRect(x, y, width, height);
+            ctx.shadowBlur = 0; // reset
+        }
     };
 
     const handleLocalMultiplayerGoal = (scoringPlayer: 1 | 2) => {
@@ -348,6 +652,24 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             if (!canvas) return;
             multiBalls.current[0] = { pos: { x: 100, y: 225 }, vel: { x: 0, y: 0 }, isMoving: false, inHole: false };
             multiBalls.current[1] = { pos: { x: 100, y: 275 }, vel: { x: 0, y: 0 }, isMoving: false, inHole: false };
+            const themes: ThemeType[] = ['classic_grass', 'desert_sands', 'midnight_space', 'cyber_blueprint'];
+            currentTheme.current = themes[Math.floor(Math.random() * themes.length)];
+             // SET PHYSICS BASED ON NEW THEME
+             switch (currentTheme.current) {
+                case 'classic_grass':
+                    currentPhysics.current = { friction: 0.975, bounce: 0.7, label: 'STANDARD', subLabel: 'Normal Bounce' };
+                    break;
+                case 'desert_sands':
+                    currentPhysics.current = { friction: 0.94, bounce: 0.4, label: 'HIGH FRICTION', subLabel: 'Sand Absorb' };
+                    break;
+                case 'midnight_space':
+                    currentPhysics.current = { friction: 0.995, bounce: 0.95, label: 'ZERO G', subLabel: 'Slippery' };
+                    break;
+                case 'cyber_blueprint':
+                    currentPhysics.current = { friction: 0.985, bounce: 1.0, label: 'ARCADE', subLabel: 'Max Bounce' };
+                    break;
+            }
+
             generateObstacles(canvas);
             randomizeHolePosition(canvas);
             generateWind(); // Change wind on goal
@@ -355,34 +677,29 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }, 500); // Slightly longer delay to appreciate the goal
     };
 
-    const gameLoop = () => {
+    const gameLoop = (timestamp: number) => {
+        timeRef.current = timestamp;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Background with Grid
-        const bgGradient = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, canvas.width);
-        bgGradient.addColorStop(0, '#1e293b');
-        bgGradient.addColorStop(1, '#0f172a');
-        ctx.fillStyle = bgGradient;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        drawGrid();
+        // 1. Draw Background
+        drawBackground();
 
-        // Draw Wind
-        drawWindIndicator();
+        // 2. Draw Info (Wind + Physics)
+        drawInfoOverlay();
 
-        // Draw Obstacles (shared) - with cleaner look
-        const currentObstacles = gameMode === 'onlineMultiplayer' && onlineGameState ? onlineGameState.obstacles : obstacles.current;
-        ctx.fillStyle = '#334155';
-        ctx.strokeStyle = '#475569';
-        ctx.lineWidth = 2;
-        currentObstacles.forEach(obs => {
-            ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
-            ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
-        });
-
-        // Draw Hole (shared)
+        // 3. Draw Hole
         const currentHolePos = gameMode === 'onlineMultiplayer' && onlineGameState ? onlineGameState.holePosition : holePos.current;
-        drawHole(currentHolePos, '#06b6d4'); // Cyan hole
+        drawHole(currentHolePos);
+        
+        // 4. Draw Flag
+        drawFlag(currentHolePos);
 
+        // 5. Draw Obstacles (shared)
+        const currentObstacles = gameMode === 'onlineMultiplayer' && onlineGameState ? onlineGameState.obstacles : obstacles.current;
+        
+        currentObstacles.forEach(obs => {
+            drawObstacle(obs);
+        });
 
         // --- RENDER BASED ON MODE ---
         if (gameMode === 'onlineMultiplayer' && onlineGameState) {
@@ -412,11 +729,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     ball.vel.x += currentWind.current.x;
                     ball.vel.y += currentWind.current.y;
                 }
-
+                
+                // MOVEMENT & FRICTION
                 ball.pos.x += ball.vel.x;
                 ball.pos.y += ball.vel.y;
-                ball.vel.x *= FRICTION;
-                ball.vel.y *= FRICTION;
+                ball.vel.x *= currentPhysics.current.friction;
+                ball.vel.y *= currentPhysics.current.friction;
                 
                 const speed = Math.sqrt(ball.vel.x ** 2 + ball.vel.y ** 2);
                 if (ball.isMoving && speed < MIN_VELOCITY) {
@@ -424,21 +742,47 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     ball.vel = {x: 0, y: 0};
                 }
 
-                if (ball.pos.x - BALL_RADIUS < 0 || ball.pos.x + BALL_RADIUS > canvas.width) ball.vel.x *= -1;
-                if (ball.pos.y - BALL_RADIUS < 0 || ball.pos.y + BALL_RADIUS > canvas.height) ball.vel.y *= -1;
+                // Wall Collisions
+                const bounce = currentPhysics.current.bounce;
+                if (ball.pos.x - BALL_RADIUS < 0) {
+                    ball.pos.x = BALL_RADIUS;
+                    ball.vel.x *= -bounce;
+                } else if (ball.pos.x + BALL_RADIUS > canvas.width) {
+                    ball.pos.x = canvas.width - BALL_RADIUS;
+                    ball.vel.x *= -bounce;
+                }
+
+                if (ball.pos.y - BALL_RADIUS < 0) {
+                    ball.pos.y = BALL_RADIUS;
+                    ball.vel.y *= -bounce;
+                } else if (ball.pos.y + BALL_RADIUS > canvas.height) {
+                    ball.pos.y = canvas.height - BALL_RADIUS;
+                    ball.vel.y *= -bounce;
+                }
                 
+                // Obstacle Collisions
                 obstacles.current.forEach(obs => {
                     const closestX = Math.max(obs.x, Math.min(ball.pos.x, obs.x + obs.width));
                     const closestY = Math.max(obs.y, Math.min(ball.pos.y, obs.y + obs.height));
                     const dx = ball.pos.x - closestX;
                     const dy = ball.pos.y - closestY;
-                    if (Math.sqrt(dx * dx + dy * dy) < BALL_RADIUS) {
-                        const overlap = BALL_RADIUS - Math.sqrt(dx*dx+dy*dy);
-                        const normalX = dx / Math.sqrt(dx*dx+dy*dy);
-                        const normalY = dy / Math.sqrt(dx*dx+dy*dy);
-                        ball.pos.x += overlap * normalX; ball.pos.y += overlap * normalY;
+                    const distSqr = dx * dx + dy * dy;
+
+                    if (distSqr < BALL_RADIUS * BALL_RADIUS) {
+                        const dist = Math.sqrt(distSqr);
+                        const overlap = BALL_RADIUS - dist;
+                        const normalX = dx / dist;
+                        const normalY = dy / dist;
+                        
+                        // Push ball out
+                        ball.pos.x += overlap * normalX; 
+                        ball.pos.y += overlap * normalY;
+                        
+                        // Reflect with Restitution (bounce)
                         const dot = ball.vel.x * normalX + ball.vel.y * normalY;
-                        ball.vel.x -= 2 * dot * normalX; ball.vel.y -= 2 * dot * normalY;
+                        // vNew = vOld - (1 + e) * (v . n) * n
+                        ball.vel.x -= (1 + bounce) * dot * normalX; 
+                        ball.vel.y -= (1 + bounce) * dot * normalY;
                     }
                 });
 
@@ -465,8 +809,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             if (dist < BALL_RADIUS * 2) {
                 const nx = dx/dist, ny = dy/dist;
                 const p = 2 * (p1.vel.x * nx + p1.vel.y * ny - p2.vel.x * nx - p2.vel.y * ny) / 2;
+                // Simple elastic collision for balls to keep gameplay fun
                 p1.vel.x -= p * nx; p1.vel.y -= p * ny;
                 p2.vel.x += p * nx; p2.vel.y += p * ny;
+                // Separation hack
+                const overlap = BALL_RADIUS * 2 - dist;
+                p1.pos.x -= overlap/2 * nx; p1.pos.y -= overlap/2 * ny;
+                p2.pos.x += overlap/2 * nx; p2.pos.y += overlap/2 * ny;
             }
 
             // Draw P2 Aim Indicator
@@ -485,7 +834,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 ctx.setLineDash([]);
             }
             // Draw instructions
-            ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.fillStyle = (currentTheme.current === 'classic_grass' || currentTheme.current === 'desert_sands') 
+                ? "rgba(0, 0, 0, 0.6)" 
+                : "rgba(255, 255, 255, 0.5)";
             ctx.font = "14px sans-serif";
             ctx.textAlign = "center";
             ctx.fillText("P1: Mouse | P2: Arrow Keys + Spacebar", canvas.width / 2, 20);
@@ -499,8 +850,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
             singleBallPos.current.x += singleBallVel.current.x;
             singleBallPos.current.y += singleBallVel.current.y;
-            singleBallVel.current.x *= FRICTION;
-            singleBallVel.current.y *= FRICTION;
+            
+            // Apply Friction
+            singleBallVel.current.x *= currentPhysics.current.friction;
+            singleBallVel.current.y *= currentPhysics.current.friction;
 
             const speed = Math.sqrt(singleBallVel.current.x ** 2 + singleBallVel.current.y ** 2);
             
@@ -510,21 +863,44 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 onBallStopRef.current();
             }
 
-            if (singleBallPos.current.x - BALL_RADIUS < 0 || singleBallPos.current.x + BALL_RADIUS > canvas.width) singleBallVel.current.x *= -1;
-            if (singleBallPos.current.y - BALL_RADIUS < 0 || singleBallPos.current.y + BALL_RADIUS > canvas.height) singleBallVel.current.y *= -1;
+            // Wall Collisions
+            const bounce = currentPhysics.current.bounce;
+            if (singleBallPos.current.x - BALL_RADIUS < 0) {
+                singleBallPos.current.x = BALL_RADIUS;
+                singleBallVel.current.x *= -bounce;
+            } else if (singleBallPos.current.x + BALL_RADIUS > canvas.width) {
+                singleBallPos.current.x = canvas.width - BALL_RADIUS;
+                singleBallVel.current.x *= -bounce;
+            }
+
+            if (singleBallPos.current.y - BALL_RADIUS < 0) {
+                singleBallPos.current.y = BALL_RADIUS;
+                singleBallVel.current.y *= -bounce;
+            } else if (singleBallPos.current.y + BALL_RADIUS > canvas.height) {
+                singleBallPos.current.y = canvas.height - BALL_RADIUS;
+                singleBallVel.current.y *= -bounce;
+            }
             
+            // Obstacle Collisions
             obstacles.current.forEach(obs => {
                 const closestX = Math.max(obs.x, Math.min(singleBallPos.current.x, obs.x + obs.width));
                 const closestY = Math.max(obs.y, Math.min(singleBallPos.current.y, obs.y + obs.height));
                 const dx = singleBallPos.current.x - closestX;
                 const dy = singleBallPos.current.y - closestY;
-                if (Math.sqrt(dx * dx + dy * dy) < BALL_RADIUS) {
-                    const overlap = BALL_RADIUS - Math.sqrt(dx*dx+dy*dy);
-                    const normalX = dx / Math.sqrt(dx*dx+dy*dy);
-                    const normalY = dy / Math.sqrt(dx*dx+dy*dy);
-                    singleBallPos.current.x += overlap * normalX; singleBallPos.current.y += overlap * normalY;
+                const distSqr = dx * dx + dy * dy;
+
+                if (distSqr < BALL_RADIUS * BALL_RADIUS) {
+                    const dist = Math.sqrt(distSqr);
+                    const overlap = BALL_RADIUS - dist;
+                    const normalX = dx / dist;
+                    const normalY = dy / dist;
+                    
+                    singleBallPos.current.x += overlap * normalX; 
+                    singleBallPos.current.y += overlap * normalY;
+                    
                     const dot = singleBallVel.current.x * normalX + singleBallVel.current.y * normalY;
-                    singleBallVel.current.x -= 2 * dot * normalX; singleBallVel.current.y -= 2 * dot * normalY;
+                    singleBallVel.current.x -= (1 + bounce) * dot * normalX; 
+                    singleBallVel.current.y -= (1 + bounce) * dot * normalY;
                 }
             });
             
@@ -539,6 +915,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     singleBallPos.current = { x: 100, y: 250 };
                     isSingleBallMoving.current = false;
                     shotCount.current = 0;
+                    
+                    const themes: ThemeType[] = ['classic_grass', 'desert_sands', 'midnight_space', 'cyber_blueprint'];
+                    currentTheme.current = themes[Math.floor(Math.random() * themes.length)];
+                    // SET PHYSICS BASED ON NEW THEME
+                    switch (currentTheme.current) {
+                        case 'classic_grass':
+                            currentPhysics.current = { friction: 0.975, bounce: 0.7, label: 'STANDARD', subLabel: 'Normal Bounce' };
+                            break;
+                        case 'desert_sands':
+                            currentPhysics.current = { friction: 0.94, bounce: 0.4, label: 'HIGH FRICTION', subLabel: 'Sand Absorb' };
+                            break;
+                        case 'midnight_space':
+                            currentPhysics.current = { friction: 0.995, bounce: 0.95, label: 'ZERO G', subLabel: 'Slippery' };
+                            break;
+                        case 'cyber_blueprint':
+                            currentPhysics.current = { friction: 0.985, bounce: 1.0, label: 'ARCADE', subLabel: 'Max Bounce' };
+                            break;
+                    }
+
                     generateObstacles(canvas);
                     randomizeHolePosition(canvas);
                     generateWind(); // Change wind on goal
@@ -568,7 +963,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 aimBallPos = singleBallPos.current;
             }
 
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.strokeStyle = (currentTheme.current === 'classic_grass' || currentTheme.current === 'desert_sands') 
+                ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)';
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.moveTo(startDragPos.current.x, startDragPos.current.y);
